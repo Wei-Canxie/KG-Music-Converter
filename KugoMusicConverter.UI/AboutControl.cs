@@ -11,6 +11,11 @@ namespace KugoMusicConverter;
 internal sealed class AboutControl : UserControl
 {
     private MainWindow? _main;
+    private TextBox? _rInput;
+    private TextBox? _gInput;
+    private TextBox? _bInput;
+    private TextBox? _hexInput;
+    private bool _isHexMode = false;
 
     private static readonly SolidColorBrush BackgroundBrush = new(ColorHelper.FromArgb(255, 0x1E, 0x1E, 0x2A));
     private static readonly SolidColorBrush SurfaceBrush = new(ColorHelper.FromArgb(255, 0x2A, 0x2A, 0x3A));
@@ -97,6 +102,7 @@ internal sealed class AboutControl : UserControl
         infoCard.Child = infoPanel;
         contentPanel.Children.Add(infoCard);
 
+        // 主题色卡片
         var themeCard = new Border
         {
             Background = SurfaceBrush,
@@ -120,13 +126,134 @@ internal sealed class AboutControl : UserControl
             Foreground = SubTextBrush,
         });
 
-        var slidersPanel = new StackPanel { Spacing = 8 };
-        var color = MainWindow.ThemeColorRef;
-        slidersPanel.Children.Add(MakeColorSlider("R", color.R, v => UpdateThemeColor((byte)v, color.G, color.B)));
-        slidersPanel.Children.Add(MakeColorSlider("G", color.G, v => UpdateThemeColor(color.R, (byte)v, color.B)));
-        slidersPanel.Children.Add(MakeColorSlider("B", color.B, v => UpdateThemeColor(color.R, color.G, (byte)v)));
-        themePanel.Children.Add(slidersPanel);
+        // 切换按钮
+        var togglePanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var btnRgb = new Button
+        {
+            Content = "RGB",
+            FontSize = 12,
+            Background = !_isHexMode ? MainWindow.ThemeBrushRef : SurfaceBrush,
+            Foreground = !_isHexMode ? new SolidColorBrush(Colors.White) : TextBrush,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 6, 12, 6),
+        };
+        btnRgb.Click += (_, _) => { _isHexMode = false; BuildUI(); };
+        var btnHex = new Button
+        {
+            Content = "HEX",
+            FontSize = 12,
+            Background = _isHexMode ? MainWindow.ThemeBrushRef : SurfaceBrush,
+            Foreground = _isHexMode ? new SolidColorBrush(Colors.White) : TextBrush,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 6, 12, 6),
+        };
+        btnHex.Click += (_, _) => { _isHexMode = true; BuildUI(); };
+        togglePanel.Children.Add(btnRgb);
+        togglePanel.Children.Add(btnHex);
+        themePanel.Children.Add(togglePanel);
 
+        var color = MainWindow.ThemeColorRef;
+
+        if (_isHexMode)
+        {
+            // HEX 输入模式
+            var hexPanel = new StackPanel { Spacing = 8 };
+            hexPanel.Children.Add(new TextBlock
+            {
+                Text = "HEX 颜色码",
+                FontSize = 12,
+                Foreground = SubTextBrush,
+            });
+            _hexInput = new TextBox
+            {
+                Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}",
+                FontSize = 14,
+                Background = SurfaceBrush,
+                Foreground = TextBrush,
+                CornerRadius = new CornerRadius(8),
+            };
+            _hexInput.KeyDown += (_, args) =>
+            {
+                if (args.Key == Windows.System.VirtualKey.Enter)
+                {
+                    TryParseHex(_hexInput.Text);
+                }
+            };
+            hexPanel.Children.Add(_hexInput);
+            themePanel.Children.Add(hexPanel);
+        }
+        else
+        {
+            // RGB 输入模式
+            var rgbPanel = new StackPanel { Spacing = 8 };
+            rgbPanel.Children.Add(new TextBlock
+            {
+                Text = "RGB 数值（0-255）",
+                FontSize = 12,
+                Foreground = SubTextBrush,
+            });
+
+            var rgbInputs = new Grid { ColumnSpacing = 12 };
+            rgbInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rgbInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rgbInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            _rInput = new TextBox
+            {
+                Text = color.R.ToString(),
+                FontSize = 14,
+                Background = SurfaceBrush,
+                Foreground = TextBrush,
+                CornerRadius = new CornerRadius(8),
+                Header = "R",
+            };
+            _rInput.KeyDown += (_, args) =>
+            {
+                if (args.Key == Windows.System.VirtualKey.Enter)
+                    TryParseRgb(_rInput.Text, _gInput!.Text, _bInput!.Text);
+            };
+            Grid.SetColumn(_rInput, 0);
+            rgbInputs.Children.Add(_rInput);
+
+            _gInput = new TextBox
+            {
+                Text = color.G.ToString(),
+                FontSize = 14,
+                Background = SurfaceBrush,
+                Foreground = TextBrush,
+                CornerRadius = new CornerRadius(8),
+                Header = "G",
+            };
+            _gInput.KeyDown += (_, args) =>
+            {
+                if (args.Key == Windows.System.VirtualKey.Enter)
+                    TryParseRgb(_rInput!.Text, _gInput.Text, _bInput!.Text);
+            };
+            Grid.SetColumn(_gInput, 1);
+            rgbInputs.Children.Add(_gInput);
+
+            _bInput = new TextBox
+            {
+                Text = color.B.ToString(),
+                FontSize = 14,
+                Background = SurfaceBrush,
+                Foreground = TextBrush,
+                CornerRadius = new CornerRadius(8),
+                Header = "B",
+            };
+            _bInput.KeyDown += (_, args) =>
+            {
+                if (args.Key == Windows.System.VirtualKey.Enter)
+                    TryParseRgb(_rInput!.Text, _gInput!.Text, _bInput.Text);
+            };
+            Grid.SetColumn(_bInput, 2);
+            rgbInputs.Children.Add(_bInput);
+
+            rgbPanel.Children.Add(rgbInputs);
+            themePanel.Children.Add(rgbPanel);
+        }
+
+        // 预览
         var previewPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center };
         previewPanel.Children.Add(new Ellipse
         {
@@ -162,53 +289,37 @@ internal sealed class AboutControl : UserControl
         Content = root;
     }
 
-    private UIElement MakeColorSlider(string label, byte current, Action<double> onChanged)
+    private void TryParseRgb(string rStr, string gStr, string bStr)
     {
-        var panel = new Grid { ColumnSpacing = 12 };
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var labelText = new TextBlock
+        if (byte.TryParse(rStr, out var r) &&
+            byte.TryParse(gStr, out var g) &&
+            byte.TryParse(bStr, out var b))
         {
-            Text = label,
-            FontSize = 13,
-            Foreground = TextBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 20,
-        };
-        Grid.SetColumn(labelText, 0);
-        panel.Children.Add(labelText);
+            UpdateThemeColor(r, g, b);
+        }
+    }
 
-        var slider = new Slider
+    private void TryParseHex(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 6 &&
+            byte.TryParse(hex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber, null, out var r) &&
+            byte.TryParse(hex.Substring(2, 2), System.Globalization.NumberStyles.HexNumber, null, out var g) &&
+            byte.TryParse(hex.Substring(4, 2), System.Globalization.NumberStyles.HexNumber, null, out var b))
         {
-            Minimum = 0,
-            Maximum = 255,
-            Value = current,
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = MainWindow.ThemeBrushRef,
-        };
-        slider.ValueChanged += (_, args) => onChanged(args.NewValue);
-        Grid.SetColumn(slider, 1);
-        panel.Children.Add(slider);
-
-        var valueText = new TextBlock
-        {
-            Text = current.ToString(),
-            FontSize = 13,
-            Foreground = SubTextBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 30,
-        };
-        Grid.SetColumn(valueText, 2);
-        panel.Children.Add(valueText);
-
-        return panel;
+            UpdateThemeColor(r, g, b);
+        }
     }
 
     private void UpdateThemeColor(byte r, byte g, byte b)
     {
         MainWindow.SetThemeColor(r, g, b);
+        // 保存到设置
+        var settings = Settings.Load();
+        settings.ThemeR = r;
+        settings.ThemeG = g;
+        settings.ThemeB = b;
+        settings.Save();
         BuildUI();
     }
 

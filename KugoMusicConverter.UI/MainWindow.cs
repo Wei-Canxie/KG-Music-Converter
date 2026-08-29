@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using Microsoft.UI;
 using Microsoft.UI.Text;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -48,7 +49,13 @@ internal sealed class MainWindow : Window
     {
         Title = "Kugo Music Converter — 酷狗加密音频解密工具箱";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 750));
+
+        // 加载设置
+        var settings = Settings.Load();
+        SetThemeColor(settings.ThemeR, settings.ThemeG, settings.ThemeB);
+
         BuildUI();
+        ApplyAllSettings(settings);
     }
 
     private void BuildUI()
@@ -73,6 +80,12 @@ internal sealed class MainWindow : Window
             Icon = new SymbolIcon(Symbol.OutlineStar),
             Tag = "about"
         });
+        _nav.MenuItems.Add(new NavigationViewItem
+        {
+            Content = "设置",
+            Icon = new SymbolIcon(Symbol.Setting),
+            Tag = "settings"
+        });
         _nav.SelectionChanged += Nav_SelectionChanged;
 
         _contentHost = new ContentControl();
@@ -84,7 +97,6 @@ internal sealed class MainWindow : Window
         root.Children.Add(_contentHost);
         Content = root;
 
-        // 默认显示转换页面
         _contentHost.Content = new ConvertControl(this);
     }
 
@@ -96,8 +108,62 @@ internal sealed class MainWindow : Window
             {
                 "convert" => new ConvertControl(this),
                 "about" => new AboutControl(this),
+                "settings" => new SettingsControl(this),
                 _ => new ConvertControl(this)
             };
+        }
+    }
+
+    /// <summary>
+    /// 应用所有设置（主题/透明度/背景/模糊）
+    /// </summary>
+    internal void ApplyAllSettings(Settings settings)
+    {
+        // 应用主题色
+        SetThemeColor(settings.ThemeR, settings.ThemeG, settings.ThemeB);
+
+        // 应用窗口不透明度
+        var root = Content as FrameworkElement;
+        if (root != null) root.Opacity = settings.WindowOpacity;
+
+        // 应用背景图
+        ApplyBackgroundImage(settings.BackgroundImagePath);
+
+        // 应用模糊模式
+        ApplyBlurMode(settings.Blur, settings.Theme);
+    }
+
+    private void ApplyBackgroundImage(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            using var stream = System.IO.File.OpenRead(path);
+            bitmap.SetSource(stream.AsRandomAccessStream());
+        }
+        catch { }
+    }
+
+    private void ApplyBlurMode(BlurMode blur, ThemeMode theme)
+    {
+        try
+        {
+            bool isDark = theme != ThemeMode.Light;
+            SystemBackdrop = blur switch
+            {
+                BlurMode.Mica => new MicaBackdrop { Kind = isDark ? MicaKind.Base : MicaKind.BaseAlt },
+                BlurMode.Acrylic => new DesktopAcrylicBackdrop(),
+                _ => null
+            };
+        }
+        catch
+        {
+            SystemBackdrop = null;
         }
     }
 
@@ -118,6 +184,12 @@ internal sealed class MainWindow : Window
     internal ListView? QueueList { get => _queueList; set => _queueList = value; }
     internal ConversionEngine? Engine => _engine;
     internal CancellationTokenSource? Cts => _cts;
+
+    internal void SetWindowOpacity(double opacity)
+    {
+        var root = Content as FrameworkElement;
+        if (root != null) root.Opacity = opacity;
+    }
 
     internal void SetEngine(ConversionEngine engine, CancellationTokenSource cts)
     {
