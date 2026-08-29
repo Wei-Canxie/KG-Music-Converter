@@ -4,12 +4,11 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace KugoMusicConverter;
 
-internal sealed class AboutPage : Page
+internal sealed class AboutControl : UserControl
 {
     private MainWindow? _main;
 
@@ -18,10 +17,9 @@ internal sealed class AboutPage : Page
     private static readonly SolidColorBrush TextBrush = new(ColorHelper.FromArgb(255, 0xE0, 0xE0, 0xE8));
     private static readonly SolidColorBrush SubTextBrush = new(ColorHelper.FromArgb(255, 0x90, 0x90, 0xA0));
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    public AboutControl(MainWindow main)
     {
-        base.OnNavigatedTo(e);
-        _main = e.Parameter as MainWindow;
+        _main = main;
         BuildUI();
     }
 
@@ -35,10 +33,8 @@ internal sealed class AboutPage : Page
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        // 内容面板
         var contentPanel = new StackPanel { Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
 
-        // 标题
         contentPanel.Children.Add(new TextBlock
         {
             Text = "关于",
@@ -48,7 +44,6 @@ internal sealed class AboutPage : Page
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 
-        // 信息卡片
         var infoCard = new Border
         {
             Background = SurfaceBrush,
@@ -65,7 +60,6 @@ internal sealed class AboutPage : Page
         infoPanel.Children.Add(MakeInfoRow("构建时间", "2026-08-29"));
         infoPanel.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
 
-        // 来源链接
         var sourcePanel = new StackPanel { Spacing = 6 };
         sourcePanel.Children.Add(new TextBlock
         {
@@ -94,7 +88,7 @@ internal sealed class AboutPage : Page
                 FileName = "https://github.com/hu568/Kugo-Music-Converter-Modpacks",
                 UseShellExecute = true,
             };
-            System.Diagnostics.Process.Start(psi);
+            try { System.Diagnostics.Process.Start(psi); } catch { }
         };
         linkPanel.Children.Add(linkText);
         sourcePanel.Children.Add(linkPanel);
@@ -103,7 +97,6 @@ internal sealed class AboutPage : Page
         infoCard.Child = infoPanel;
         contentPanel.Children.Add(infoCard);
 
-        // 主题色调整
         var themeCard = new Border
         {
             Background = SurfaceBrush,
@@ -127,7 +120,6 @@ internal sealed class AboutPage : Page
             Foreground = SubTextBrush,
         });
 
-        // RGB 滑块
         var slidersPanel = new StackPanel { Spacing = 8 };
         var color = MainWindow.ThemeColorRef;
         slidersPanel.Children.Add(MakeColorSlider("R", color.R, v => UpdateThemeColor((byte)v, color.G, color.B)));
@@ -135,23 +127,20 @@ internal sealed class AboutPage : Page
         slidersPanel.Children.Add(MakeColorSlider("B", color.B, v => UpdateThemeColor(color.R, color.G, (byte)v)));
         themePanel.Children.Add(slidersPanel);
 
-        // 当前颜色预览
         var previewPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center };
-        var previewBox = new Ellipse
+        previewPanel.Children.Add(new Ellipse
         {
             Width = 32,
             Height = 32,
             Fill = MainWindow.ThemeBrushRef,
-        };
-        var hexText = new TextBlock
+        });
+        previewPanel.Children.Add(new TextBlock
         {
             Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}",
             FontSize = 14,
             Foreground = TextBrush,
             VerticalAlignment = VerticalAlignment.Center,
-        };
-        previewPanel.Children.Add(previewBox);
-        previewPanel.Children.Add(hexText);
+        });
         themePanel.Children.Add(previewPanel);
 
         themeCard.Child = themePanel;
@@ -160,7 +149,6 @@ internal sealed class AboutPage : Page
         Grid.SetRow(contentPanel, 0);
         root.Children.Add(contentPanel);
 
-        // 底部版权
         var footer = new TextBlock
         {
             Text = "© 2026 Evilist. 基于 GPL v3 许可证发布。",
@@ -221,7 +209,6 @@ internal sealed class AboutPage : Page
     private void UpdateThemeColor(byte r, byte g, byte b)
     {
         MainWindow.SetThemeColor(r, g, b);
-        // 刷新页面以应用新颜色
         BuildUI();
     }
 

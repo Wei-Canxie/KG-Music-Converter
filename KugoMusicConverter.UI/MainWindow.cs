@@ -15,7 +15,7 @@ internal sealed class MainWindow : Window
     private CancellationTokenSource? _cts;
 
     private NavigationView? _nav;
-    private Frame? _frame;
+    private ContentControl? _contentHost;
     private TextBox? _logBox;
     private ProgressBar? _progressBar;
     private TextBlock? _progressLabel;
@@ -74,35 +74,34 @@ internal sealed class MainWindow : Window
             Tag = "about"
         });
         _nav.SelectionChanged += Nav_SelectionChanged;
-        _nav.Loaded += (_, _) =>
-        {
-            try { _nav.SelectedItem = _nav.MenuItems[0]; } catch { }
-        };
 
-        _frame = new Frame();
-        Grid.SetRow(_frame, 1);
+        _contentHost = new ContentControl();
+        Grid.SetRow(_contentHost, 1);
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         root.Children.Add(_nav);
-        root.Children.Add(_frame);
+        root.Children.Add(_contentHost);
         Content = root;
+
+        // 默认显示转换页面
+        _contentHost.Content = new ConvertControl(this);
     }
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
         {
-            _frame.Navigate(tag switch
+            _contentHost!.Content = tag switch
             {
-                "convert" => typeof(ConvertPage),
-                "about" => typeof(AboutPage),
-                _ => typeof(ConvertPage)
-            }, this);
+                "convert" => new ConvertControl(this),
+                "about" => new AboutControl(this),
+                _ => new ConvertControl(this)
+            };
         }
     }
 
-    internal Frame? Frame => _frame;
+    internal Frame? Frame => null;
     internal ObservableCollection<FileEntry> Files => _files;
     internal TextBox? LogBox { get => _logBox; set => _logBox = value; }
     internal ProgressBar? ProgressBar { get => _progressBar; set => _progressBar = value; }

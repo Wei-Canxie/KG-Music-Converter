@@ -1,6 +1,5 @@
 using System;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using Microsoft.UI;
@@ -8,12 +7,11 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using System.Threading;
 
 namespace KugoMusicConverter;
 
-internal sealed class ConvertPage : Page, INotifyPropertyChanged
+internal sealed class ConvertControl : UserControl
 {
     private MainWindow? _main;
     private ListView? _queueList;
@@ -38,31 +36,26 @@ internal sealed class ConvertPage : Page, INotifyPropertyChanged
     private static readonly SolidColorBrush SubTextBrush = new(ColorHelper.FromArgb(255, 0x90, 0x90, 0xA0));
     private static readonly SolidColorBrush NeedsManualBrush = new(ColorHelper.FromArgb(255, 0xFF, 0x98, 0x00));
 
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    public ConvertControl(MainWindow main)
     {
-        base.OnNavigatedTo(e);
-        _main = e.Parameter as MainWindow;
+        _main = main;
         BuildUI();
-        if (_main != null)
-        {
-            _main.QueueList = _queueList;
-            _main.LogBox = _logBox;
-            _main.ProgressBar = _progressBar;
-            _main.ProgressLabel = _progressLabel;
-            _main.StartButton = _startButton;
-            _main.CancelButton = _cancelButton;
-            _main.SkipCopyCheck = _skipCopyCheck;
-            _main.SkipConvertCheck = _skipConvertCheck;
-            _main.UnifiedOutputCheck = _unifiedOutputCheck;
-            _main.UnifiedOutputBox = _unifiedOutputBox;
-            _main.BrowseOutputButton = _browseOutputButton;
-            _main.KggWarning = _kggWarning;
-            _main.ClearCompletedButton = _clearCompletedButton;
 
-            _main.Files.CollectionChanged += (_, _) => UpdateFileCount();
-        }
+        _main.QueueList = _queueList;
+        _main.LogBox = _logBox;
+        _main.ProgressBar = _progressBar;
+        _main.ProgressLabel = _progressLabel;
+        _main.StartButton = _startButton;
+        _main.CancelButton = _cancelButton;
+        _main.SkipCopyCheck = _skipCopyCheck;
+        _main.SkipConvertCheck = _skipConvertCheck;
+        _main.UnifiedOutputCheck = _unifiedOutputCheck;
+        _main.UnifiedOutputBox = _unifiedOutputBox;
+        _main.BrowseOutputButton = _browseOutputButton;
+        _main.KggWarning = _kggWarning;
+        _main.ClearCompletedButton = _clearCompletedButton;
+
+        _main.Files.CollectionChanged += (_, _) => UpdateFileCount();
     }
 
     private void BuildUI()
@@ -148,7 +141,7 @@ internal sealed class ConvertPage : Page, INotifyPropertyChanged
         Grid.SetRow(_kggWarning, 3);
         root.Children.Add(_kggWarning);
 
-        // 队列列表 — 用 StackPanel 嵌在 ScrollViewer 里
+        // 队列列表
         var queueBorder = new Border
         {
             Background = SurfaceBrush,
@@ -365,7 +358,7 @@ internal sealed class ConvertPage : Page, INotifyPropertyChanged
         picker.FileTypeFilter.Add(".vpr");
         picker.FileTypeFilter.Add(".flac");
 
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_main!);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
         var results = await picker.PickMultipleFilesAsync().AsTask();
@@ -448,7 +441,7 @@ internal sealed class ConvertPage : Page, INotifyPropertyChanged
         {
             SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
         };
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_main!);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
         var result = await picker.PickSingleFolderAsync().AsTask();
         if (result != null)
