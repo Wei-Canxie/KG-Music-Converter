@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.spec
+
+# PyInstaller 编译输出
+build/
+dist/
+*.exe
+
+# dotnet build 输出
+bin/
+obj/
+*.user
+*.suo
+
+# 发行包
+Releases/
+
+# 用户输入文件
+input/
+input/*
+
+# 解密输出（排除批量转MP3工具本身）
+kgm-vpr-out/*
+!kgm-vpr-out/批量转MP3.bat
+
+# 项目说明（已移至 README.md）
+AGENTS.md
+
+# 测试目录
+Test-m/
+
+# 系统
+Thumbs.db
+.DS_Store
