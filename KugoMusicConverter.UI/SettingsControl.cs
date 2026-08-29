@@ -576,16 +576,15 @@ internal sealed class SettingsControl : UserControl
     {
         try
         {
-            bool isDark = _settings.Theme != ThemeMode.Light;
             if (_main != null)
             {
                 if (_settings.Blur == BlurMode.Mica)
                 {
-                    _main.SystemBackdrop = new MicaBackdrop { Kind = isDark ? MicaKind.Base : MicaKind.BaseAlt };
+                    _main.SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
                 }
                 else if (_settings.Blur == BlurMode.Acrylic)
                 {
-                    _main.SystemBackdrop = new DesktopAcrylicBackdrop();
+                    _main.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
                 }
                 else
                 {

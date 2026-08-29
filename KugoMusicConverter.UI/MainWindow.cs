@@ -225,14 +225,14 @@ internal sealed class MainWindow : Window
             var settings = Settings.Load();
             if (blur == BlurMode.Mica)
             {
-                SystemBackdrop = new MicaBackdrop { Kind = isDark ? MicaKind.Base : MicaKind.BaseAlt };
+                SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
                 if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
             }
             else if (blur == BlurMode.Acrylic)
             {
                 try
                 {
-                    SystemBackdrop = new DesktopAcrylicBackdrop();
+                    SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
                     if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
                 }
                 catch
@@ -261,7 +261,7 @@ internal sealed class MainWindow : Window
     {
         _blurRadius = radius;
 
-        // 如果有背景图，重新应用模糊
+        // 如果有背景图，重新应用软件模糊
         if (_bgImage != null && _originalBgImage != null)
         {
             if (radius > 0)
@@ -277,22 +277,56 @@ internal sealed class MainWindow : Window
         }
         else
         {
-            // 没有背景图时，使用覆盖层模拟模糊
-            if (_rootGrid == null) return;
+            // 没有背景图时，使用 SystemBackdropElement（SDK 2.0+）
+            ApplySystemBackdrop(mode);
+        }
+    }
 
-            var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
-            if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
+    private void ApplySystemBackdrop(BlurMode mode)
+    {
+        if (_rootGrid == null) return;
 
-            if (radius > 0 && mode != BlurMode.None)
+        // 移除旧的 SystemBackdropElement
+        var oldSbe = _rootGrid.Children.FirstOrDefault(c => c is SystemBackdropElement);
+        if (oldSbe != null) _rootGrid.Children.Remove(oldSbe);
+
+        // 移除旧的覆盖层
+        var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
+        if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
+
+        if (mode == BlurMode.None) return;
+
+        try
+        {
+            // 使用 SystemBackdropElement 实现真正的系统模糊
+            var sbe = new SystemBackdropElement
             {
-                var overlay = new Border
-                {
-                    Name = "BlurOverlay",
-                    Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
-                    Opacity = Math.Min(radius / 50.0, 0.8),
-                };
-                _rootGrid.Children.Insert(1, overlay);
+                Name = "SystemBackdropElement",
+                CornerRadius = new CornerRadius(0),
+            };
+
+            if (mode == BlurMode.Acrylic)
+            {
+                sbe.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
             }
+            else if (mode == BlurMode.Mica)
+            {
+                sbe.SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
+            }
+
+            // 插入到 mainLayer 下面（索引 1，在 _bgImage 之后）
+            _rootGrid.Children.Insert(1, sbe);
+        }
+        catch
+        {
+            // 系统模糊不可用时回退到覆盖层
+            var overlay = new Border
+            {
+                Name = "BlurOverlay",
+                Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
+                Opacity = Math.Min(_blurRadius / 50.0, 0.8),
+            };
+            _rootGrid.Children.Insert(1, overlay);
         }
     }
 
