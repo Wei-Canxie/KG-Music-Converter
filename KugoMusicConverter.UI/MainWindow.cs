@@ -2,7 +2,6 @@ using System;
 using System.Collections.ObjectModel;
 using Microsoft.UI;
 using Microsoft.UI.Text;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -49,7 +48,6 @@ internal sealed class MainWindow : Window
     {
         Title = "Kugo Music Converter — 酷狗加密音频解密工具箱";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 750));
-        SystemBackdrop = new MicaBackdrop { Kind = MicaKind.Base };
         BuildUI();
     }
 
