@@ -230,10 +230,24 @@ internal sealed class MainWindow : Window
         try
         {
             bool isDark = theme != ThemeMode.Light;
+            var settings = Settings.Load();
             if (blur == BlurMode.Mica)
             {
                 SystemBackdrop = new MicaBackdrop { Kind = isDark ? MicaKind.Base : MicaKind.BaseAlt };
                 if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
+                ApplyMicaIntensity(settings.BlurIntensity);
+            }
+            else if (blur == BlurMode.Acrylic)
+            {
+                try
+                {
+                    SystemBackdrop = new DesktopAcrylicBackdrop();
+                    if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
+                }
+                catch
+                {
+                    SystemBackdrop = null;
+                }
             }
             else
             {
@@ -245,6 +259,24 @@ internal sealed class MainWindow : Window
         {
             SystemBackdrop = null;
         }
+    }
+
+    private void ApplyMicaIntensity(double intensity)
+    {
+        if (_rootGrid == null) return;
+        // 移除旧的覆盖层
+        var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "MicaOverlay");
+        if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
+
+        if (intensity >= 1.0) return; // 无覆盖
+
+        var overlay = new Border
+        {
+            Name = "MicaOverlay",
+            Background = new SolidColorBrush(Colors.Black),
+            Opacity = 1.0 - intensity,
+        };
+        _rootGrid.Children.Insert(1, overlay);
     }
 
     private void ApplyBackgroundImage(string? path)

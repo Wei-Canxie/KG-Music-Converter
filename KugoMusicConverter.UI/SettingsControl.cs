@@ -255,6 +255,15 @@ internal sealed class SettingsControl : UserControl
         blurButtons.Children.Add(MakeBlurButton("云母", BlurMode.Mica));
         blurButtons.Children.Add(MakeBlurButton("亚克力", BlurMode.Acrylic));
         blurPanel.Children.Add(blurButtons);
+
+        // 模糊强度
+        blurPanel.Children.Add(MakeOpacitySlider("模糊强度", _settings.BlurIntensity, v =>
+        {
+            _settings.BlurIntensity = v;
+            ApplyBlur();
+            ApplySettings();
+        }));
+
         appearancePanel.Children.Add(blurPanel);
 
         appearanceCard.Child = appearancePanel;
