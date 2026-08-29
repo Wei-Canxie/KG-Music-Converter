@@ -61,6 +61,10 @@ internal sealed class MainWindow : Window
     private TextBlock? _kggWarning;
     private Button? _clearCompletedButton;
 
+    private double _blurRadius = 0;
+    private string? _backgroundImagePath;
+    private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _originalBgImage;
+
     private readonly ObservableCollection<FileEntry> _files = new();
 
     public static void SetThemeColor(byte r, byte g, byte b)
@@ -255,91 +259,105 @@ internal sealed class MainWindow : Window
 
     internal void ApplyBlurRadius(double radius, BlurMode mode)
     {
-        if (_rootGrid == null) return;
+        _blurRadius = radius;
 
-        // 移除旧的模糊覆盖层
-        var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
-        if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
-
-        if (radius <= 0 || mode == BlurMode.None) return;
-
-        // 使用 DWM 模糊效果
-        try
+        // 如果有背景图，重新应用模糊
+        if (_bgImage != null && _originalBgImage != null)
         {
-            var hwnd = WindowNative.GetWindowHandle(this);
-            EnableBlurBehind(hwnd, (int)radius);
-        }
-        catch
-        {
-            // 模糊效果不可用时使用覆盖层模拟
-            var overlay = new Border
+            if (radius > 0)
             {
-                Name = "BlurOverlay",
-                Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
-                Opacity = Math.Min(radius / 50.0, 0.8),
-            };
-            _rootGrid.Children.Insert(1, overlay);
+                var blurred = GaussianBlurHelper.Blur(_originalBgImage, (int)radius);
+                _bgImage.Source = blurred;
+            }
+            else
+            {
+                _bgImage.Source = _originalBgImage;
+            }
+            _bgImage.Opacity = Settings.Load().BackgroundImageOpacity;
         }
-    }
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmEnableBlurBehindWindow(IntPtr hwnd, ref DWM_BLURBEHIND pBlurBehind);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DWM_BLURBEHIND
-    {
-        public uint dwFlags;
-        public bool fEnable;
-        public IntPtr hRgnBlur;
-        public bool fTransitionOnMaximized;
-    }
-
-    private const uint DWM_BB_ENABLE = 0x01;
-    private const uint DWM_BB_BLURREGION = 0x02;
-    private const uint DWM_BB_TRANSITIONONMAXIMIZED = 0x04;
-
-    private void EnableBlurBehind(IntPtr hwnd, int radius)
-    {
-        var bb = new DWM_BLURBEHIND
+        else
         {
-            dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION,
-            fEnable = true,
-            hRgnBlur = CreateRectRgn(0, 0, -1, -1),
-            fTransitionOnMaximized = true,
-        };
-        DwmEnableBlurBehindWindow(hwnd, ref bb);
-    }
+            // 没有背景图时，使用覆盖层模拟模糊
+            if (_rootGrid == null) return;
 
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect);
+            var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
+            if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
 
-    private Microsoft.UI.Composition.Compositor? GetCompositor()
-    {
-        return null;
+            if (radius > 0 && mode != BlurMode.None)
+            {
+                var overlay = new Border
+                {
+                    Name = "BlurOverlay",
+                    Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
+                    Opacity = Math.Min(radius / 50.0, 0.8),
+                };
+                _rootGrid.Children.Insert(1, overlay);
+            }
+        }
     }
 
     private void ApplyBackgroundImage(string? path)
     {
         if (_bgImage == null) return;
 
+        _backgroundImagePath = path;
+
         if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
         {
             try
             {
-                var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                using var stream = System.IO.File.OpenRead(path);
-                bitmap.SetSource(stream.AsRandomAccessStream());
-                _bgImage.Source = bitmap;
-                _bgImage.Opacity = Settings.Load().BackgroundImageOpacity;
+                // 加载图像（未模糊版本）
+                var wb = LoadImageToWriteableBitmap(path);
+                if (wb != null)
+                {
+                    _originalBgImage = wb;
+                    // 应用当前模糊半径
+                    if (_blurRadius > 0)
+                    {
+                        var blurred = GaussianBlurHelper.Blur(wb, (int)_blurRadius);
+                        _bgImage.Source = blurred;
+                    }
+                    else
+                    {
+                        _bgImage.Source = wb;
+                    }
+                    _bgImage.Opacity = Settings.Load().BackgroundImageOpacity;
+                }
+                else
+                {
+                    _bgImage.Source = null;
+                    _originalBgImage = null;
+                }
             }
             catch
             {
                 _bgImage.Source = null;
+                _originalBgImage = null;
             }
         }
         else
         {
             _bgImage.Source = null;
+            _originalBgImage = null;
+        }
+    }
+
+    private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? LoadImageToWriteableBitmap(string path)
+    {
+        try
+        {
+            using var stream = System.IO.File.OpenRead(path);
+            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            bitmap.SetSource(stream.AsRandomAccessStream());
+            // 等待图像加载完成
+            var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap((int)bitmap.PixelWidth, (int)bitmap.PixelHeight);
+            using var fileStream = System.IO.File.OpenRead(path);
+            wb.SetSource(fileStream.AsRandomAccessStream());
+            return wb;
+        }
+        catch
+        {
+            return null;
         }
     }
 
