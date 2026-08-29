@@ -23,7 +23,7 @@ public class Settings
     public double BackgroundImageOpacity { get; set; } = 1.0;
     public string? BackgroundImagePath { get; set; }
     public BlurMode Blur { get; set; } = BlurMode.None;
-    public double BlurIntensity { get; set; } = 1.0;
+    public double BlurRadius { get; set; } = 0;
     public byte ThemeR { get; set; } = 0xFF;
     public byte ThemeG { get; set; } = 0x66;
     public byte ThemeB { get; set; } = 0xAB;

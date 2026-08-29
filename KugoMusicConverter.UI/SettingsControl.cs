@@ -256,13 +256,66 @@ internal sealed class SettingsControl : UserControl
         blurButtons.Children.Add(MakeBlurButton("亚克力", BlurMode.Acrylic));
         blurPanel.Children.Add(blurButtons);
 
-        // 模糊强度
-        blurPanel.Children.Add(MakeOpacitySlider("模糊强度", _settings.BlurIntensity, v =>
+        // 模糊半径（像素）
+        var blurRadiusPanel = new StackPanel { Spacing = 4 };
+        var blurRadiusLabel = new TextBlock
         {
-            _settings.BlurIntensity = v;
+            Text = $"模糊半径: {_settings.BlurRadius:F0}px",
+            FontSize = 12,
+            Foreground = tm.SubText,
+        };
+        blurRadiusPanel.Children.Add(blurRadiusLabel);
+
+        var blurRadiusInputPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var blurSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 50,
+            Value = Math.Min(_settings.BlurRadius, 50),
+            Width = 220,
+            Foreground = tm.Accent,
+            SmallChange = 1,
+            LargeChange = 5,
+            StepFrequency = 1,
+        };
+
+        var blurInput = new TextBox
+        {
+            Text = _settings.BlurRadius.ToString("F0"),
+            FontSize = 12,
+            Width = 55,
+            Background = tm.Surface,
+            Foreground = tm.Text,
+            CornerRadius = new CornerRadius(6),
+        };
+
+        blurSlider.ValueChanged += (_, args) =>
+        {
+            double val = args.NewValue;
+            blurInput.Text = val.ToString("F0");
+            blurRadiusLabel.Text = $"模糊半径: {val:F0}px";
+            _settings.BlurRadius = val;
             ApplyBlur();
             ApplySettings();
-        }));
+        };
+
+        blurInput.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Enter && double.TryParse(blurInput.Text, out var val))
+            {
+                val = Math.Max(0, val);
+                blurSlider.Value = Math.Min(val, 50);
+                blurRadiusLabel.Text = $"模糊半径: {val:F0}px";
+                _settings.BlurRadius = val;
+                ApplyBlur();
+                ApplySettings();
+            }
+        };
+
+        blurRadiusInputPanel.Children.Add(blurSlider);
+        blurRadiusInputPanel.Children.Add(blurInput);
+        blurRadiusPanel.Children.Add(blurRadiusInputPanel);
+        blurPanel.Children.Add(blurRadiusPanel);
 
         appearancePanel.Children.Add(blurPanel);
 
@@ -538,6 +591,7 @@ internal sealed class SettingsControl : UserControl
                 {
                     _main.SystemBackdrop = null;
                 }
+                _main.ApplyBlurRadius(_settings.BlurRadius, _settings.Blur);
             }
         }
         catch

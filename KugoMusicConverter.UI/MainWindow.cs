@@ -16,7 +16,6 @@ namespace KugoMusicConverter;
 
 internal sealed class MainWindow : Window
 {
-    // ── Win32 Interop ──
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_LAYERED = 0x80000;
     private const int LWA_ALPHA = 0x2;
@@ -78,7 +77,6 @@ internal sealed class MainWindow : Window
         ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
         ThemeManager.Instance.Mode = settings.Theme;
 
-        // 自定义标题栏
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(null);
 
@@ -90,7 +88,6 @@ internal sealed class MainWindow : Window
     {
         _rootGrid = new Grid();
 
-        // 背景图（独立不透明度层）
         _bgImage = new Image
         {
             Stretch = Stretch.UniformToFill,
@@ -98,13 +95,11 @@ internal sealed class MainWindow : Window
         };
         _rootGrid.Children.Add(_bgImage);
 
-        // 主内容层
         var mainLayer = new Grid();
-        mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32, GridUnitType.Pixel) }); // 标题栏
-        mainLayer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 导航
-        mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 内容
+        mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32, GridUnitType.Pixel) });
+        mainLayer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        // 自定义标题栏
         _titleBar = new Border
         {
             Background = GetTitleBarBrush(Settings.Load().WindowOpacity),
@@ -132,7 +127,6 @@ internal sealed class MainWindow : Window
         Grid.SetColumn(_titleText, 0);
         titlePanel.Children.Add(_titleText);
 
-        // 标题栏按钮
         var titleButtons = new StackPanel { Orientation = Orientation.Horizontal };
         var btnMin = new Button { Content = "🗕", FontSize = 12, Background = new SolidColorBrush(Colors.Transparent), BorderThickness = new Thickness(0), Padding = new Thickness(10, 0, 10, 0), Width = 40 };
         var btnMax = new Button { Content = "🗖", FontSize = 12, Background = new SolidColorBrush(Colors.Transparent), BorderThickness = new Thickness(0), Padding = new Thickness(10, 0, 10, 0), Width = 40 };
@@ -150,7 +144,6 @@ internal sealed class MainWindow : Window
         Grid.SetRow(_titleBar, 0);
         mainLayer.Children.Add(_titleBar);
 
-        // 导航
         _nav = new NavigationView
         {
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
@@ -164,7 +157,6 @@ internal sealed class MainWindow : Window
         Grid.SetRow(_nav, 1);
         mainLayer.Children.Add(_nav);
 
-        // 内容
         _contentHost = new ContentControl
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -192,13 +184,9 @@ internal sealed class MainWindow : Window
 
     private SolidColorBrush GetTitleBarBrush(double opacity)
     {
-        // 标题栏透明度：<=90% 时 +10% 以造成差异效果
         double titleOpacity = opacity <= 0.9 ? Math.Min(1.0, opacity + 0.1) : opacity;
-        var color = ThemeManager.Instance.Text;
-        return new SolidColorBrush(ColorHelper.FromArgb((byte)(titleOpacity * 255), 0, 0, 0))
-        {
-            Opacity = titleOpacity,
-        };
+        var bgColor = ThemeManager.Instance.Background.Color;
+        return new SolidColorBrush(ColorHelper.FromArgb((byte)(titleOpacity * 255), bgColor.R, bgColor.G, bgColor.B));
     }
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -235,7 +223,6 @@ internal sealed class MainWindow : Window
             {
                 SystemBackdrop = new MicaBackdrop { Kind = isDark ? MicaKind.Base : MicaKind.BaseAlt };
                 if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
-                ApplyMicaIntensity(settings.BlurIntensity);
             }
             else if (blur == BlurMode.Acrylic)
             {
@@ -263,18 +250,25 @@ internal sealed class MainWindow : Window
 
     private void ApplyMicaIntensity(double intensity)
     {
+        // 使用 MicaBackdrop.TintIntensity 直接控制
+    }
+
+    internal void ApplyBlurRadius(double radius, BlurMode mode)
+    {
         if (_rootGrid == null) return;
-        // 移除旧的覆盖层
-        var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "MicaOverlay");
+
+        // 移除旧的模糊覆盖层
+        var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
         if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
 
-        if (intensity >= 1.0) return; // 无覆盖
+        if (radius <= 0 || mode == BlurMode.None) return;
 
+        // 用覆盖层模拟模糊强度（radius 越大，覆盖层越不透明）
         var overlay = new Border
         {
-            Name = "MicaOverlay",
-            Background = new SolidColorBrush(Colors.Black),
-            Opacity = 1.0 - intensity,
+            Name = "BlurOverlay",
+            Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
+            Opacity = Math.Min(radius / 50.0, 0.8),
         };
         _rootGrid.Children.Insert(1, overlay);
     }
@@ -306,7 +300,6 @@ internal sealed class MainWindow : Window
 
     internal void ApplyOpacity(double windowOpacity, double panelOpacity)
     {
-        // 窗口整体不透明度：Win32 SetLayeredWindowAttributes
         try
         {
             var hwnd = WindowNative.GetWindowHandle(this);
@@ -320,13 +313,11 @@ internal sealed class MainWindow : Window
         }
         catch { }
 
-        // 标题栏不透明度
         if (_titleBar != null)
         {
             _titleBar.Background = GetTitleBarBrush(windowOpacity);
         }
 
-        // Panel 不透明度
         ThemeManager.Instance.PanelOpacity = panelOpacity;
     }
 
