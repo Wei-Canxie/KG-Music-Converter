@@ -5,9 +5,6 @@ using Microsoft.UI;
 
 namespace KugoMusicConverter;
 
-/// <summary>
-/// 全局主题管理器 — 单例，管理所有主题画刷，提供变更通知。
-/// </summary>
 public class ThemeManager : INotifyPropertyChanged
 {
     private static readonly Lazy<ThemeManager> _instance = new(() => new ThemeManager());
@@ -16,6 +13,7 @@ public class ThemeManager : INotifyPropertyChanged
     private ThemeMode _mode = ThemeMode.Dark;
     private Windows.UI.Color _accentColor = ColorHelper.FromArgb(255, 0xFF, 0x66, 0xAB);
     private bool _isDark = true;
+    private double _panelOpacity = 1.0;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -39,7 +37,12 @@ public class ThemeManager : INotifyPropertyChanged
         private set { _isDark = value; OnPropertyChanged(); }
     }
 
-    // ── 画刷 ──
+    public double PanelOpacity
+    {
+        get => _panelOpacity;
+        set { _panelOpacity = value; OnPropertyChanged(); }
+    }
+
     public Microsoft.UI.Xaml.Media.SolidColorBrush Background { get; private set; } = null!;
     public Microsoft.UI.Xaml.Media.SolidColorBrush Surface { get; private set; } = null!;
     public Microsoft.UI.Xaml.Media.SolidColorBrush CardBackground { get; private set; } = null!;
@@ -63,9 +66,6 @@ public class ThemeManager : INotifyPropertyChanged
         mgr.Refresh();
     }
 
-    /// <summary>
-    /// 刷新主题画刷颜色
-    /// </summary>
     public void Refresh()
     {
         IsDark = _mode switch

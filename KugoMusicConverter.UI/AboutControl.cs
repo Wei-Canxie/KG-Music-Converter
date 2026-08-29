@@ -20,15 +20,23 @@ internal sealed class AboutControl : UserControl
     private void BuildUI()
     {
         var tm = ThemeManager.Instance;
+
+        var scroll = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(20, 16, 20, 16),
+        };
+
         var root = new Grid
         {
             Background = tm.Background,
-            Padding = new Thickness(28, 20, 28, 20),
+            MinWidth = 500,
+            MinHeight = 400,
         };
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var contentPanel = new StackPanel { Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
+        var contentPanel = new StackPanel { Spacing = 16, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
 
         contentPanel.Children.Add(new TextBlock
         {
@@ -56,19 +64,9 @@ internal sealed class AboutControl : UserControl
         infoPanel.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
 
         var sourcePanel = new StackPanel { Spacing = 6 };
-        sourcePanel.Children.Add(new TextBlock
-        {
-            Text = "原始项目",
-            FontSize = 13,
-            Foreground = tm.SubText,
-        });
+        sourcePanel.Children.Add(new TextBlock { Text = "原始项目", FontSize = 13, Foreground = tm.SubText });
         var linkPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        linkPanel.Children.Add(new TextBlock
-        {
-            Text = "🔗",
-            FontSize = 14,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
+        linkPanel.Children.Add(new TextBlock { Text = "🔗", FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
         var linkText = new TextBlock
         {
             Text = "github.com/hu568/Kugo-Music-Converter-Modpacks",
@@ -95,17 +93,8 @@ internal sealed class AboutControl : UserControl
         Grid.SetRow(contentPanel, 0);
         root.Children.Add(contentPanel);
 
-        var footer = new TextBlock
-        {
-            Text = "© 2026 Evilist. 基于 GPL v3 许可证发布。",
-            FontSize = 11,
-            Foreground = tm.SubText,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        Grid.SetRow(footer, 1);
-        root.Children.Add(footer);
-
-        Content = root;
+        scroll.Content = root;
+        Content = scroll;
     }
 
     private StackPanel MakeInfoRow(string label, string value)

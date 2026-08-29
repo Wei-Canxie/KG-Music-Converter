@@ -57,21 +57,29 @@ internal sealed class ConvertControl : UserControl
     private void BuildUI()
     {
         var tm = ThemeManager.Instance;
+
+        var scroll = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(28, 20, 28, 20),
+        };
+
         var root = new Grid
         {
             Background = tm.Background,
-            Padding = new Thickness(28, 20, 28, 20),
-            RowSpacing = 12,
+            MinWidth = 600,
+            MinHeight = 500,
         };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var contentPanel = new StackPanel
+        {
+            Spacing = 16,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            MaxWidth = 900,
+        };
 
         // 标题
         var titlePanel = new StackPanel { Spacing = 4 };
@@ -88,8 +96,7 @@ internal sealed class ConvertControl : UserControl
             FontSize = 13,
             Foreground = tm.SubText,
         });
-        Grid.SetRow(titlePanel, 0);
-        root.Children.Add(titlePanel);
+        contentPanel.Children.Add(titlePanel);
 
         // 文件计数
         _fileCountLabel = new TextBlock
@@ -98,8 +105,7 @@ internal sealed class ConvertControl : UserControl
             FontSize = 12,
             Foreground = tm.SubText,
         };
-        Grid.SetRow(_fileCountLabel, 1);
-        root.Children.Add(_fileCountLabel);
+        contentPanel.Children.Add(_fileCountLabel);
 
         // 拖放区
         var dropZone = new Border
@@ -122,8 +128,7 @@ internal sealed class ConvertControl : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Grid.SetRow(dropZone, 2);
-        root.Children.Add(dropZone);
+        contentPanel.Children.Add(dropZone);
 
         // KGG 警告
         _kggWarning = new TextBlock
@@ -135,8 +140,7 @@ internal sealed class ConvertControl : UserControl
             Visibility = Visibility.Collapsed,
             Margin = new Thickness(4, 0, 4, 0),
         };
-        Grid.SetRow(_kggWarning, 3);
-        root.Children.Add(_kggWarning);
+        contentPanel.Children.Add(_kggWarning);
 
         // 队列列表
         var queueBorder = new Border
@@ -149,6 +153,7 @@ internal sealed class ConvertControl : UserControl
         var queueScroll = new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 200,
         };
         _queueList = new ListView
         {
@@ -159,8 +164,7 @@ internal sealed class ConvertControl : UserControl
         };
         queueScroll.Content = _queueList;
         queueBorder.Child = queueScroll;
-        Grid.SetRow(queueBorder, 4);
-        root.Children.Add(queueBorder);
+        contentPanel.Children.Add(queueBorder);
 
         // 选项
         var optionsPanel = new StackPanel { Spacing = 10 };
@@ -219,8 +223,7 @@ internal sealed class ConvertControl : UserControl
         outputDirPanel.Children.Add(_browseOutputButton);
         optionsPanel.Children.Add(outputDirPanel);
 
-        Grid.SetRow(optionsPanel, 5);
-        root.Children.Add(optionsPanel);
+        contentPanel.Children.Add(optionsPanel);
 
         // 日志区
         var logBorder = new Border
@@ -245,8 +248,7 @@ internal sealed class ConvertControl : UserControl
         };
         ScrollViewer.SetVerticalScrollBarVisibility(_logBox, ScrollBarVisibility.Auto);
         logBorder.Child = _logBox;
-        Grid.SetRow(logBorder, 6);
-        root.Children.Add(logBorder);
+        contentPanel.Children.Add(logBorder);
 
         // 进度条
         var progressPanel = new StackPanel { Spacing = 6 };
@@ -268,8 +270,7 @@ internal sealed class ConvertControl : UserControl
             CornerRadius = new CornerRadius(3),
         };
         progressPanel.Children.Add(_progressBar);
-        Grid.SetRow(progressPanel, 7);
-        root.Children.Add(progressPanel);
+        contentPanel.Children.Add(progressPanel);
 
         // 按钮
         var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right };
@@ -325,10 +326,13 @@ internal sealed class ConvertControl : UserControl
         _startButton.Click += OnStart;
         buttonPanel.Children.Add(_startButton);
 
-        Grid.SetRow(buttonPanel, 8);
-        root.Children.Add(buttonPanel);
+        contentPanel.Children.Add(buttonPanel);
 
-        Content = root;
+        Grid.SetRow(contentPanel, 0);
+        root.Children.Add(contentPanel);
+
+        scroll.Content = root;
+        Content = scroll;
     }
 
     private void DropZone_DragOver(object sender, DragEventArgs e)

@@ -19,6 +19,8 @@ public class Settings
 
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
     public double WindowOpacity { get; set; } = 1.0;
+    public double PanelOpacity { get; set; } = 1.0;
+    public double BackgroundImageOpacity { get; set; } = 1.0;
     public string? BackgroundImagePath { get; set; }
     public BlurMode Blur { get; set; } = BlurMode.None;
     public byte ThemeR { get; set; } = 0xFF;
