@@ -263,14 +263,59 @@ internal sealed class MainWindow : Window
 
         if (radius <= 0 || mode == BlurMode.None) return;
 
-        // 用覆盖层模拟模糊强度（radius 越大，覆盖层越不透明）
-        var overlay = new Border
+        // 使用 DWM 模糊效果
+        try
         {
-            Name = "BlurOverlay",
-            Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
-            Opacity = Math.Min(radius / 50.0, 0.8),
+            var hwnd = WindowNative.GetWindowHandle(this);
+            EnableBlurBehind(hwnd, (int)radius);
+        }
+        catch
+        {
+            // 模糊效果不可用时使用覆盖层模拟
+            var overlay = new Border
+            {
+                Name = "BlurOverlay",
+                Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
+                Opacity = Math.Min(radius / 50.0, 0.8),
+            };
+            _rootGrid.Children.Insert(1, overlay);
+        }
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmEnableBlurBehindWindow(IntPtr hwnd, ref DWM_BLURBEHIND pBlurBehind);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DWM_BLURBEHIND
+    {
+        public uint dwFlags;
+        public bool fEnable;
+        public IntPtr hRgnBlur;
+        public bool fTransitionOnMaximized;
+    }
+
+    private const uint DWM_BB_ENABLE = 0x01;
+    private const uint DWM_BB_BLURREGION = 0x02;
+    private const uint DWM_BB_TRANSITIONONMAXIMIZED = 0x04;
+
+    private void EnableBlurBehind(IntPtr hwnd, int radius)
+    {
+        var bb = new DWM_BLURBEHIND
+        {
+            dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION,
+            fEnable = true,
+            hRgnBlur = CreateRectRgn(0, 0, -1, -1),
+            fTransitionOnMaximized = true,
         };
-        _rootGrid.Children.Insert(1, overlay);
+        DwmEnableBlurBehindWindow(hwnd, ref bb);
+    }
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect);
+
+    private Microsoft.UI.Composition.Compositor? GetCompositor()
+    {
+        return null;
     }
 
     private void ApplyBackgroundImage(string? path)
