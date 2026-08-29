@@ -55,6 +55,8 @@ internal sealed class MainWindow : Window
         SetThemeColor(settings.ThemeR, settings.ThemeG, settings.ThemeB);
 
         BuildUI();
+
+        // 应用设置（延迟到 BuildUI 之后）
         ApplyAllSettings(settings);
     }
 
@@ -126,38 +128,13 @@ internal sealed class MainWindow : Window
         var root = Content as FrameworkElement;
         if (root != null) root.Opacity = settings.WindowOpacity;
 
-        // 应用背景图
-        ApplyBackgroundImage(settings.BackgroundImagePath);
-
-        // 应用模糊模式
-        ApplyBlurMode(settings.Blur, settings.Theme);
-    }
-
-    private void ApplyBackgroundImage(string? path)
-    {
-        if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
-        {
-            return;
-        }
-
+        // 应用模糊模式（仅 Mica，避免 Acrylic 崩溃）
         try
         {
-            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-            using var stream = System.IO.File.OpenRead(path);
-            bitmap.SetSource(stream.AsRandomAccessStream());
-        }
-        catch { }
-    }
-
-    private void ApplyBlurMode(BlurMode blur, ThemeMode theme)
-    {
-        try
-        {
-            bool isDark = theme != ThemeMode.Light;
-            SystemBackdrop = blur switch
+            bool isDark = settings.Theme != ThemeMode.Light;
+            SystemBackdrop = settings.Blur switch
             {
                 BlurMode.Mica => new MicaBackdrop { Kind = isDark ? MicaKind.Base : MicaKind.BaseAlt },
-                BlurMode.Acrylic => new DesktopAcrylicBackdrop(),
                 _ => null
             };
         }
@@ -165,6 +142,12 @@ internal sealed class MainWindow : Window
         {
             SystemBackdrop = null;
         }
+    }
+
+    internal void SetWindowOpacity(double opacity)
+    {
+        var root = Content as FrameworkElement;
+        if (root != null) root.Opacity = opacity;
     }
 
     internal Frame? Frame => null;
@@ -184,12 +167,6 @@ internal sealed class MainWindow : Window
     internal ListView? QueueList { get => _queueList; set => _queueList = value; }
     internal ConversionEngine? Engine => _engine;
     internal CancellationTokenSource? Cts => _cts;
-
-    internal void SetWindowOpacity(double opacity)
-    {
-        var root = Content as FrameworkElement;
-        if (root != null) root.Opacity = opacity;
-    }
 
     internal void SetEngine(ConversionEngine engine, CancellationTokenSource cts)
     {

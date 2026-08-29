@@ -166,10 +166,8 @@ internal sealed class SettingsControl : UserControl
         var blurButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var btnBlurNone = MakeBlurButton("默认", BlurMode.None);
         var btnBlurMica = MakeBlurButton("云母", BlurMode.Mica);
-        var btnBlurAcrylic = MakeBlurButton("亚克力", BlurMode.Acrylic);
         blurButtons.Children.Add(btnBlurNone);
         blurButtons.Children.Add(btnBlurMica);
-        blurButtons.Children.Add(btnBlurAcrylic);
         blurPanel.Children.Add(blurButtons);
         appearancePanel.Children.Add(blurPanel);
 
