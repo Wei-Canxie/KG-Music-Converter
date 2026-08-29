@@ -30,10 +30,6 @@ internal sealed class ConvertControl : UserControl
     private TextBlock? _kggWarning;
     private TextBlock? _fileCountLabel;
 
-    private static readonly SolidColorBrush BackgroundBrush = new(ColorHelper.FromArgb(255, 0x1E, 0x1E, 0x2A));
-    private static readonly SolidColorBrush SurfaceBrush = new(ColorHelper.FromArgb(255, 0x2A, 0x2A, 0x3A));
-    private static readonly SolidColorBrush TextBrush = new(ColorHelper.FromArgb(255, 0xE0, 0xE0, 0xE8));
-    private static readonly SolidColorBrush SubTextBrush = new(ColorHelper.FromArgb(255, 0x90, 0x90, 0xA0));
     private static readonly SolidColorBrush NeedsManualBrush = new(ColorHelper.FromArgb(255, 0xFF, 0x98, 0x00));
 
     public ConvertControl(MainWindow main)
@@ -60,9 +56,10 @@ internal sealed class ConvertControl : UserControl
 
     private void BuildUI()
     {
+        var tm = ThemeManager.Instance;
         var root = new Grid
         {
-            Background = BackgroundBrush,
+            Background = tm.Background,
             Padding = new Thickness(28, 20, 28, 20),
             RowSpacing = 12,
         };
@@ -83,13 +80,13 @@ internal sealed class ConvertControl : UserControl
             Text = "转换队列",
             FontSize = 22,
             FontWeight = FontWeights.Bold,
-            Foreground = MainWindow.ThemeBrushRef,
+            Foreground = tm.Accent,
         });
         titlePanel.Children.Add(new TextBlock
         {
             Text = "拖入或添加文件，点击开始转换",
             FontSize = 13,
-            Foreground = SubTextBrush,
+            Foreground = tm.SubText,
         });
         Grid.SetRow(titlePanel, 0);
         root.Children.Add(titlePanel);
@@ -99,7 +96,7 @@ internal sealed class ConvertControl : UserControl
         {
             Text = "共 0 个文件",
             FontSize = 12,
-            Foreground = SubTextBrush,
+            Foreground = tm.SubText,
         };
         Grid.SetRow(_fileCountLabel, 1);
         root.Children.Add(_fileCountLabel);
@@ -107,8 +104,8 @@ internal sealed class ConvertControl : UserControl
         // 拖放区
         var dropZone = new Border
         {
-            Background = SurfaceBrush,
-            BorderBrush = MainWindow.ThemeBrushRef,
+            Background = tm.Surface,
+            BorderBrush = tm.Accent,
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(24),
@@ -121,7 +118,7 @@ internal sealed class ConvertControl : UserControl
         {
             Text = "📁 拖入文件到此处，或点击下方按钮添加",
             FontSize = 14,
-            Foreground = SubTextBrush,
+            Foreground = tm.SubText,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -144,7 +141,7 @@ internal sealed class ConvertControl : UserControl
         // 队列列表
         var queueBorder = new Border
         {
-            Background = SurfaceBrush,
+            Background = tm.Surface,
             BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(8),
@@ -158,6 +155,7 @@ internal sealed class ConvertControl : UserControl
             SelectionMode = ListViewSelectionMode.None,
             IsItemClickEnabled = false,
             ItemsSource = _main?.Files,
+            Background = tm.Surface,
         };
         queueScroll.Content = _queueList;
         queueBorder.Child = queueScroll;
@@ -171,7 +169,7 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "跳过复制（文件已在工作目录）",
             FontSize = 13,
-            Foreground = TextBrush,
+            Foreground = tm.Text,
         };
         optionsPanel.Children.Add(_skipCopyCheck);
 
@@ -179,7 +177,7 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "跳过转 MP3（仅解密）",
             FontSize = 13,
-            Foreground = TextBrush,
+            Foreground = tm.Text,
         };
         optionsPanel.Children.Add(_skipConvertCheck);
 
@@ -187,7 +185,7 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "统一输出到指定目录：",
             FontSize = 13,
-            Foreground = TextBrush,
+            Foreground = tm.Text,
         };
         _unifiedOutputCheck.Checked += (_, _) => UpdateUnifiedOutputState();
         _unifiedOutputCheck.Unchecked += (_, _) => UpdateUnifiedOutputState();
@@ -200,8 +198,8 @@ internal sealed class ConvertControl : UserControl
         {
             IsEnabled = false,
             FontSize = 13,
-            Background = SurfaceBrush,
-            Foreground = TextBrush,
+            Background = tm.Surface,
+            Foreground = tm.Text,
             CornerRadius = new CornerRadius(8),
         };
         Grid.SetColumn(_unifiedOutputBox, 0);
@@ -211,8 +209,8 @@ internal sealed class ConvertControl : UserControl
             Content = "浏览…",
             IsEnabled = false,
             FontSize = 13,
-            Background = SurfaceBrush,
-            Foreground = TextBrush,
+            Background = tm.Surface,
+            Foreground = tm.Text,
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14, 6, 14, 6),
         };
@@ -227,7 +225,7 @@ internal sealed class ConvertControl : UserControl
         // 日志区
         var logBorder = new Border
         {
-            Background = SurfaceBrush,
+            Background = tm.Surface,
             BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(4),
@@ -240,7 +238,7 @@ internal sealed class ConvertControl : UserControl
             TextWrapping = TextWrapping.Wrap,
             FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"),
             FontSize = 11,
-            Foreground = TextBrush,
+            Foreground = tm.Text,
             Background = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(0),
             Text = "",
@@ -256,7 +254,7 @@ internal sealed class ConvertControl : UserControl
         {
             Text = "就绪",
             FontSize = 12,
-            Foreground = SubTextBrush,
+            Foreground = tm.SubText,
         };
         progressPanel.Children.Add(_progressLabel);
         _progressBar = new ProgressBar
@@ -265,8 +263,8 @@ internal sealed class ConvertControl : UserControl
             Maximum = 100,
             Value = 0,
             Height = 6,
-            Foreground = MainWindow.ThemeBrushRef,
-            Background = SurfaceBrush,
+            Foreground = tm.Accent,
+            Background = tm.Surface,
             CornerRadius = new CornerRadius(3),
         };
         progressPanel.Children.Add(_progressBar);
@@ -280,8 +278,8 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "添加文件…",
             FontSize = 14,
-            Background = SurfaceBrush,
-            Foreground = TextBrush,
+            Background = tm.Surface,
+            Foreground = tm.Text,
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20, 10, 20, 10),
         };
@@ -292,8 +290,8 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "清除已完成",
             FontSize = 14,
-            Background = SurfaceBrush,
-            Foreground = TextBrush,
+            Background = tm.Surface,
+            Foreground = tm.Text,
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20, 10, 20, 10),
         };
@@ -305,8 +303,8 @@ internal sealed class ConvertControl : UserControl
             Content = "取消",
             FontSize = 14,
             IsEnabled = false,
-            Background = SurfaceBrush,
-            Foreground = TextBrush,
+            Background = tm.Surface,
+            Foreground = tm.Text,
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(28, 10, 28, 10),
         };
@@ -318,7 +316,7 @@ internal sealed class ConvertControl : UserControl
             Content = "开始转换",
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Background = MainWindow.ThemeBrushRef,
+            Background = tm.Accent,
             Foreground = new SolidColorBrush(Colors.White),
             BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(10),

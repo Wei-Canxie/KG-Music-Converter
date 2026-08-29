@@ -31,19 +31,7 @@ internal sealed class MainWindow : Window
     private TextBlock? _kggWarning;
     private Button? _clearCompletedButton;
 
-    private static Windows.UI.Color _themeColor = ColorHelper.FromArgb(255, 0xFF, 0x66, 0xAB);
-    private static SolidColorBrush _themeBrush = new(_themeColor);
-
     private readonly ObservableCollection<FileEntry> _files = new();
-
-    public static void SetThemeColor(byte r, byte g, byte b)
-    {
-        _themeColor = ColorHelper.FromArgb(255, r, g, b);
-        _themeBrush = new SolidColorBrush(_themeColor);
-    }
-
-    public static SolidColorBrush ThemeBrushRef => _themeBrush;
-    public static Windows.UI.Color ThemeColorRef => _themeColor;
 
     public MainWindow()
     {
@@ -52,17 +40,16 @@ internal sealed class MainWindow : Window
 
         // 加载设置
         var settings = Settings.Load();
-        SetThemeColor(settings.ThemeR, settings.ThemeG, settings.ThemeB);
+        ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
+        ThemeManager.Instance.Mode = settings.Theme;
 
         BuildUI();
-
-        // 应用设置（延迟到 BuildUI 之后）
         ApplyAllSettings(settings);
     }
 
     private void BuildUI()
     {
-        var root = new Grid { Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x1E, 0x1E, 0x2A)) };
+        var root = new Grid { Background = ThemeManager.Instance.Background };
 
         _nav = new NavigationView
         {
@@ -78,15 +65,15 @@ internal sealed class MainWindow : Window
         });
         _nav.MenuItems.Add(new NavigationViewItem
         {
-            Content = "关于",
-            Icon = new SymbolIcon(Symbol.OutlineStar),
-            Tag = "about"
-        });
-        _nav.MenuItems.Add(new NavigationViewItem
-        {
             Content = "设置",
             Icon = new SymbolIcon(Symbol.Setting),
             Tag = "settings"
+        });
+        _nav.MenuItems.Add(new NavigationViewItem
+        {
+            Content = "关于",
+            Icon = new SymbolIcon(Symbol.OutlineStar),
+            Tag = "about"
         });
         _nav.SelectionChanged += Nav_SelectionChanged;
 
@@ -109,26 +96,24 @@ internal sealed class MainWindow : Window
             _contentHost!.Content = tag switch
             {
                 "convert" => new ConvertControl(this),
-                "about" => new AboutControl(this),
                 "settings" => new SettingsControl(this),
+                "about" => new AboutControl(this),
                 _ => new ConvertControl(this)
             };
         }
     }
 
-    /// <summary>
-    /// 应用所有设置（主题/透明度/背景/模糊）
-    /// </summary>
     internal void ApplyAllSettings(Settings settings)
     {
         // 应用主题色
-        SetThemeColor(settings.ThemeR, settings.ThemeG, settings.ThemeB);
+        ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
+        ThemeManager.Instance.Mode = settings.Theme;
 
         // 应用窗口不透明度
         var root = Content as FrameworkElement;
         if (root != null) root.Opacity = settings.WindowOpacity;
 
-        // 应用模糊模式（仅 Mica，避免 Acrylic 崩溃）
+        // 应用模糊模式
         try
         {
             bool isDark = settings.Theme != ThemeMode.Light;
