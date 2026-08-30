@@ -58,11 +58,11 @@ internal sealed class ConvertControl : UserControl
     {
         var tm = ThemeManager.Instance;
 
-        // V2rayN Vertical 风格：左操作区 | 灰色分割线 | 右侧全高日志
+        // V2rayN Vertical 风格：左操作区 | 可拖动分割线 | 右侧全高日志
         var root = new Grid();
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(480, GridUnitType.Pixel) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(480, GridUnitType.Pixel), MinWidth = 360 });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
 
         // ── 左列：操作区 ──
         var leftScroll = new ScrollViewer
@@ -75,8 +75,7 @@ internal sealed class ConvertControl : UserControl
         {
             Spacing = 16,
             Padding = new Thickness(24, 16, 24, 16),
-            MaxWidth = 460,
-            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
         // 标题
@@ -86,12 +85,14 @@ internal sealed class ConvertControl : UserControl
             Text = "转换队列",
             FontSize = 20,
             FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
         });
         titlePanel.Children.Add(new TextBlock
         {
             Text = "拖入或添加文件，点击开始转换",
             FontSize = 13,
             Foreground = tm.SubText,
+            TextWrapping = TextWrapping.Wrap,
         });
         contentPanel.Children.Add(titlePanel);
 
@@ -101,6 +102,7 @@ internal sealed class ConvertControl : UserControl
             Text = "共 0 个文件",
             FontSize = 12,
             Foreground = tm.SubText,
+            TextWrapping = TextWrapping.Wrap,
         };
         contentPanel.Children.Add(_fileCountLabel);
 
@@ -114,8 +116,7 @@ internal sealed class ConvertControl : UserControl
             Padding = new Thickness(24),
             AllowDrop = true,
             Height = 72,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Width = 380,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         dropZone.DragOver += DropZone_DragOver;
         dropZone.Drop += DropZone_Drop;
@@ -124,6 +125,7 @@ internal sealed class ConvertControl : UserControl
             Text = "📁 拖入文件到此处，或点击下方按钮添加",
             FontSize = 14,
             Foreground = tm.SubText,
+            TextWrapping = TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -162,21 +164,21 @@ internal sealed class ConvertControl : UserControl
 
         _skipCopyCheck = new CheckBox
         {
-            Content = "跳过复制（文件已在工作目录）",
+            Content = WrapText("跳过复制（文件已在工作目录）"),
             FontSize = 13,
         };
         optionsPanel.Children.Add(_skipCopyCheck);
 
         _skipConvertCheck = new CheckBox
         {
-            Content = "跳过转 MP3（仅解密）",
+            Content = WrapText("跳过转 MP3（仅解密）"),
             FontSize = 13,
         };
         optionsPanel.Children.Add(_skipConvertCheck);
 
         _unifiedOutputCheck = new CheckBox
         {
-            Content = "统一输出到指定目录：",
+            Content = WrapText("统一输出到指定目录："),
             FontSize = 13,
         };
         _unifiedOutputCheck.Checked += (_, _) => UpdateUnifiedOutputState();
@@ -230,17 +232,20 @@ internal sealed class ConvertControl : UserControl
         progressPanel.Children.Add(_progressBar);
         contentPanel.Children.Add(progressPanel);
 
-        // 按钮（左对齐）
-        var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
+        // 按钮（左对齐，Grid 均分保证窄列时也能放下）
+        var buttonPanel = new Grid { ColumnSpacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        for (int i = 0; i < 4; i++)
+            buttonPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         _addFilesButton = new Button
         {
             Content = "添加文件…",
             FontSize = 14,
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(20, 10, 20, 10),
+            Padding = new Thickness(8, 10, 8, 10),
         };
         _addFilesButton.Click += OnAddFiles;
+        Grid.SetColumn(_addFilesButton, 0);
         buttonPanel.Children.Add(_addFilesButton);
 
         _clearCompletedButton = new Button
@@ -248,9 +253,10 @@ internal sealed class ConvertControl : UserControl
             Content = "清除已完成",
             FontSize = 14,
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(20, 10, 20, 10),
+            Padding = new Thickness(8, 10, 8, 10),
         };
         _clearCompletedButton.Click += OnClearCompleted;
+        Grid.SetColumn(_clearCompletedButton, 1);
         buttonPanel.Children.Add(_clearCompletedButton);
 
         _cancelButton = new Button
@@ -259,9 +265,10 @@ internal sealed class ConvertControl : UserControl
             FontSize = 14,
             IsEnabled = false,
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(28, 10, 28, 10),
+            Padding = new Thickness(8, 10, 8, 10),
         };
         _cancelButton.Click += OnCancel;
+        Grid.SetColumn(_cancelButton, 2);
         buttonPanel.Children.Add(_cancelButton);
 
         _startButton = new Button
@@ -273,9 +280,10 @@ internal sealed class ConvertControl : UserControl
             Foreground = new SolidColorBrush(Colors.White),
             BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(32, 10, 32, 10),
+            Padding = new Thickness(8, 10, 8, 10),
         };
         _startButton.Click += OnStart;
+        Grid.SetColumn(_startButton, 3);
         buttonPanel.Children.Add(_startButton);
 
         contentPanel.Children.Add(buttonPanel);
@@ -284,17 +292,54 @@ internal sealed class ConvertControl : UserControl
         Grid.SetColumn(leftScroll, 0);
         root.Children.Add(leftScroll);
 
-        // ── 中列：灰色分割线 ──
-        var divider = new Border
+        // ── 中列：可拖动分割线（手写 Pointer 拖动，调整左右列占比） ──
+        // 用可见的半透明深色条：既是视觉分割线又是命中区（Grid 默认 Background=null 不命中）
+        var splitter = new SplitterGrid
+        {
+            Width = 8,
+            Background = new SolidColorBrush(ColorHelper.FromArgb(24, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        // 视觉细灰线（居中，不拦截命中）
+        var splitterLine = new Border
         {
             Width = 1,
             Background = tm.Border,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
             Margin = new Thickness(0, 12, 0, 12),
+            IsHitTestVisible = false,
         };
-        Grid.SetColumn(divider, 1);
-        root.Children.Add(divider);
+        splitter.Children.Add(splitterLine);
+        // 拖动逻辑（不依赖 CapturePointer：移动/释放监听挂在 root 上更稳）
+        var col0 = root.ColumnDefinitions[0];
+        bool dragging = false;
+        double dragStartX = 0, dragStartWidth = 0;
 
-        // ── 右列：日志输出栏（与内容区同高，撑满） ──
+        splitter.PointerPressed += (s, e) =>
+        {
+            dragging = true;
+            dragStartX = e.GetCurrentPoint(root).Position.X;
+            dragStartWidth = col0.ActualWidth;
+            e.Handled = true;
+        };
+        root.PointerMoved += (s, e) =>
+        {
+            if (!dragging) return;
+            var delta = e.GetCurrentPoint(root).Position.X - dragStartX;
+            var newWidth = Math.Clamp(dragStartWidth + delta, 360, root.ActualWidth - 300 - 6);
+            col0.Width = new GridLength(newWidth, GridUnitType.Pixel);
+            e.Handled = true;
+        };
+        root.PointerReleased += (s, e) => { dragging = false; e.Handled = true; };
+        root.PointerCaptureLost += (s, e) => dragging = false;
+        splitter.PointerCaptureLost += (s, e) => dragging = false;
+
+        Grid.SetColumn(splitter, 1);
+        root.Children.Add(splitter);
+
+        // ── 右列：日志输出栏（与内容区同高，撑满，自动换行） ──
         var logHost = new Grid();
         _logBox = new TextBox
         {
@@ -538,6 +583,28 @@ internal sealed class ConvertControl : UserControl
             if (descendant != null) return descendant;
         }
         return null;
+    }
+
+    /// <summary>
+    /// 包装可自动换行的文本（用于 CheckBox 等 Content 为 string 时窄列截断问题）
+    /// </summary>
+    private static TextBlock WrapText(string text) => new()
+    {
+        Text = text,
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+}
+
+/// <summary>
+/// 可设置拖动光标的 Grid（ProtectedCursor 是 protected，需子类暴露）
+/// </summary>
+internal sealed class SplitterGrid : Grid
+{
+    public SplitterGrid()
+    {
+        ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
+            Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
     }
 }
 

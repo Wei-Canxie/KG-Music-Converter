@@ -31,9 +31,7 @@ internal sealed class AboutControl : UserControl
         panel.Children.Add(Header("关于"));
 
         panel.Children.Add(MakeInfoRow("程序名称", "Kugo Music Converter"));
-        panel.Children.Add(MakeInfoRow("版本", "v0.3.0 (UI 改版)"));
         panel.Children.Add(MakeInfoRow("作者", "Evilist"));
-        panel.Children.Add(MakeInfoRow("构建时间", "2026-08-30"));
         panel.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
 
         panel.Children.Add(new TextBlock { Text = "原始项目", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
