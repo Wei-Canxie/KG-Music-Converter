@@ -62,22 +62,13 @@ internal sealed class ConvertControl : UserControl
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Padding = new Thickness(28, 20, 28, 20),
         };
 
-        var root = new Grid
-        {
-            Background = tm.Background,
-            MinWidth = 600,
-            MinHeight = 500,
-        };
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
+        // 模板风格：扁平 StackPanel + Spacing + Padding，背景透明（透出窗口背景图/模糊）
         var contentPanel = new StackPanel
         {
             Spacing = 16,
-            VerticalAlignment = VerticalAlignment.Top,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(24, 16, 24, 16),
             MaxWidth = 900,
         };
 
@@ -86,9 +77,8 @@ internal sealed class ConvertControl : UserControl
         titlePanel.Children.Add(new TextBlock
         {
             Text = "转换队列",
-            FontSize = 22,
-            FontWeight = FontWeights.Bold,
-            Foreground = tm.Accent,
+            FontSize = 20,
+            FontWeight = FontWeights.SemiBold,
         });
         titlePanel.Children.Add(new TextBlock
         {
@@ -110,7 +100,7 @@ internal sealed class ConvertControl : UserControl
         // 拖放区
         var dropZone = new Border
         {
-            Background = tm.Surface,
+            Background = new SolidColorBrush(ColorHelper.FromArgb(64, 255, 255, 255)),
             BorderBrush = tm.Accent,
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(12),
@@ -142,14 +132,7 @@ internal sealed class ConvertControl : UserControl
         };
         contentPanel.Children.Add(_kggWarning);
 
-        // 队列列表
-        var queueBorder = new Border
-        {
-            Background = tm.Surface,
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(8),
-        };
+        // 队列列表（轻量卡片）
         var queueScroll = new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -160,11 +143,10 @@ internal sealed class ConvertControl : UserControl
             SelectionMode = ListViewSelectionMode.None,
             IsItemClickEnabled = false,
             ItemsSource = _main?.Files,
-            Background = tm.Surface,
+            Background = new SolidColorBrush(Colors.Transparent),
         };
         queueScroll.Content = _queueList;
-        queueBorder.Child = queueScroll;
-        contentPanel.Children.Add(queueBorder);
+        contentPanel.Children.Add(queueScroll);
 
         // 选项
         var optionsPanel = new StackPanel { Spacing = 10 };
@@ -173,7 +155,6 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "跳过复制（文件已在工作目录）",
             FontSize = 13,
-            Foreground = tm.Text,
         };
         optionsPanel.Children.Add(_skipCopyCheck);
 
@@ -181,7 +162,6 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "跳过转 MP3（仅解密）",
             FontSize = 13,
-            Foreground = tm.Text,
         };
         optionsPanel.Children.Add(_skipConvertCheck);
 
@@ -189,7 +169,6 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "统一输出到指定目录：",
             FontSize = 13,
-            Foreground = tm.Text,
         };
         _unifiedOutputCheck.Checked += (_, _) => UpdateUnifiedOutputState();
         _unifiedOutputCheck.Unchecked += (_, _) => UpdateUnifiedOutputState();
@@ -202,8 +181,6 @@ internal sealed class ConvertControl : UserControl
         {
             IsEnabled = false,
             FontSize = 13,
-            Background = tm.Surface,
-            Foreground = tm.Text,
             CornerRadius = new CornerRadius(8),
         };
         Grid.SetColumn(_unifiedOutputBox, 0);
@@ -213,8 +190,6 @@ internal sealed class ConvertControl : UserControl
             Content = "浏览…",
             IsEnabled = false,
             FontSize = 13,
-            Background = tm.Surface,
-            Foreground = tm.Text,
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14, 6, 14, 6),
         };
@@ -225,15 +200,7 @@ internal sealed class ConvertControl : UserControl
 
         contentPanel.Children.Add(optionsPanel);
 
-        // 日志区
-        var logBorder = new Border
-        {
-            Background = tm.Surface,
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(4),
-            Height = 100,
-        };
+        // 日志区（轻量卡片）
         _logBox = new TextBox
         {
             IsReadOnly = true,
@@ -241,14 +208,15 @@ internal sealed class ConvertControl : UserControl
             TextWrapping = TextWrapping.Wrap,
             FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"),
             FontSize = 11,
-            Foreground = tm.Text,
-            Background = new SolidColorBrush(Colors.Transparent),
-            BorderThickness = new Thickness(0),
+            Background = new SolidColorBrush(ColorHelper.FromArgb(64, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            BorderBrush = tm.Border,
+            CornerRadius = new CornerRadius(8),
             Text = "",
+            MinHeight = 100,
         };
         ScrollViewer.SetVerticalScrollBarVisibility(_logBox, ScrollBarVisibility.Auto);
-        logBorder.Child = _logBox;
-        contentPanel.Children.Add(logBorder);
+        contentPanel.Children.Add(_logBox);
 
         // 进度条
         var progressPanel = new StackPanel { Spacing = 6 };
@@ -266,7 +234,6 @@ internal sealed class ConvertControl : UserControl
             Value = 0,
             Height = 6,
             Foreground = tm.Accent,
-            Background = tm.Surface,
             CornerRadius = new CornerRadius(3),
         };
         progressPanel.Children.Add(_progressBar);
@@ -279,8 +246,6 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "添加文件…",
             FontSize = 14,
-            Background = tm.Surface,
-            Foreground = tm.Text,
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20, 10, 20, 10),
         };
@@ -291,8 +256,6 @@ internal sealed class ConvertControl : UserControl
         {
             Content = "清除已完成",
             FontSize = 14,
-            Background = tm.Surface,
-            Foreground = tm.Text,
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20, 10, 20, 10),
         };
@@ -304,8 +267,6 @@ internal sealed class ConvertControl : UserControl
             Content = "取消",
             FontSize = 14,
             IsEnabled = false,
-            Background = tm.Surface,
-            Foreground = tm.Text,
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(28, 10, 28, 10),
         };
@@ -328,10 +289,7 @@ internal sealed class ConvertControl : UserControl
 
         contentPanel.Children.Add(buttonPanel);
 
-        Grid.SetRow(contentPanel, 0);
-        root.Children.Add(contentPanel);
-
-        scroll.Content = root;
+        scroll.Content = contentPanel;
         Content = scroll;
     }
 

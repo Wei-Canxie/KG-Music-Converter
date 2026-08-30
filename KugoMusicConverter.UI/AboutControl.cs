@@ -25,46 +25,18 @@ internal sealed class AboutControl : UserControl
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Padding = new Thickness(20, 16, 20, 16),
         };
 
-        var root = new Grid
-        {
-            Background = tm.Background,
-            MinWidth = 500,
-            MinHeight = 400,
-        };
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(24, 16, 24, 16), MaxWidth = 560 };
+        panel.Children.Add(Header("关于"));
 
-        var contentPanel = new StackPanel { Spacing = 16, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        panel.Children.Add(MakeInfoRow("程序名称", "Kugo Music Converter"));
+        panel.Children.Add(MakeInfoRow("版本", "v0.3.0 (UI 改版)"));
+        panel.Children.Add(MakeInfoRow("作者", "Evilist"));
+        panel.Children.Add(MakeInfoRow("构建时间", "2026-08-30"));
+        panel.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
 
-        contentPanel.Children.Add(new TextBlock
-        {
-            Text = "关于",
-            FontSize = 28,
-            FontWeight = FontWeights.Bold,
-            Foreground = tm.Accent,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-
-        var infoCard = new Border
-        {
-            Background = tm.CardBackground,
-            CornerRadius = new CornerRadius(16),
-            Padding = new Thickness(24),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Width = 500,
-        };
-        var infoPanel = new StackPanel { Spacing = 12 };
-
-        infoPanel.Children.Add(MakeInfoRow("程序名称", "Kugo Music Converter"));
-        infoPanel.Children.Add(MakeInfoRow("版本", "v0.3.0 (UI 改版)"));
-        infoPanel.Children.Add(MakeInfoRow("作者", "Evilist"));
-        infoPanel.Children.Add(MakeInfoRow("构建时间", "2026-08-29"));
-        infoPanel.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
-
-        var sourcePanel = new StackPanel { Spacing = 6 };
-        sourcePanel.Children.Add(new TextBlock { Text = "原始项目", FontSize = 13, Foreground = tm.SubText });
+        panel.Children.Add(new TextBlock { Text = "原始项目", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
         var linkPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         linkPanel.Children.Add(new TextBlock { Text = "🔗", FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
         var linkText = new TextBlock
@@ -84,16 +56,9 @@ internal sealed class AboutControl : UserControl
             try { System.Diagnostics.Process.Start(psi); } catch { }
         };
         linkPanel.Children.Add(linkText);
-        sourcePanel.Children.Add(linkPanel);
-        infoPanel.Children.Add(sourcePanel);
+        panel.Children.Add(linkPanel);
 
-        infoCard.Child = infoPanel;
-        contentPanel.Children.Add(infoCard);
-
-        Grid.SetRow(contentPanel, 0);
-        root.Children.Add(contentPanel);
-
-        scroll.Content = root;
+        scroll.Content = panel;
         Content = scroll;
     }
 
@@ -116,4 +81,11 @@ internal sealed class AboutControl : UserControl
         });
         return panel;
     }
+
+    private static TextBlock Header(string text) => new()
+    {
+        Text = text,
+        FontSize = 20,
+        FontWeight = FontWeights.SemiBold
+    };
 }

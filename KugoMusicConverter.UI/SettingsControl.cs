@@ -35,77 +35,41 @@ internal sealed class SettingsControl : UserControl
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Padding = new Thickness(20, 16, 20, 16),
         };
 
-        var root = new Grid
+        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(24, 16, 24, 16) };
+        panel.Children.Add(Header("外观设置"));
+
+        // ── 主题 ──
+        panel.Children.Add(new TextBlock { Text = "主题", FontWeight = FontWeights.SemiBold });
+        var themePanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+
+        var themeFollowRadio = new RadioButton { Content = "跟随系统" };
+        var themeLightRadio = new RadioButton { Content = "亮色" };
+        var themeDarkRadio = new RadioButton { Content = "暗色" };
+
+        switch (_settings.Theme)
         {
-            Background = tm.Background,
-            MinWidth = 500,
-            MinHeight = 400,
-        };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            case ThemeMode.Light: themeLightRadio.IsChecked = true; break;
+            case ThemeMode.Dark: themeDarkRadio.IsChecked = true; break;
+            default: themeFollowRadio.IsChecked = true; break;
+        }
 
-        var contentPanel = new StackPanel
-        {
-            Spacing = 14,
-            VerticalAlignment = VerticalAlignment.Top,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = 580,
-            MinWidth = 400,
-        };
+        themeFollowRadio.Checked += (_, _) => { _settings.Theme = ThemeMode.System; ApplySettings(); };
+        themeLightRadio.Checked += (_, _) => { _settings.Theme = ThemeMode.Light; ApplySettings(); };
+        themeDarkRadio.Checked += (_, _) => { _settings.Theme = ThemeMode.Dark; ApplySettings(); };
 
-        // 标题
-        contentPanel.Children.Add(new TextBlock
-        {
-            Text = "设置",
-            FontSize = 26,
-            FontWeight = FontWeights.Bold,
-            Foreground = tm.Accent,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
+        themePanel.Children.Add(themeFollowRadio);
+        themePanel.Children.Add(themeLightRadio);
+        themePanel.Children.Add(themeDarkRadio);
+        panel.Children.Add(themePanel);
 
-        // ── 外观卡片 ──
-        var appearanceCard = new Border
-        {
-            Background = tm.CardBackground,
-            CornerRadius = new CornerRadius(16),
-            Padding = new Thickness(20),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        var appearancePanel = new StackPanel { Spacing = 14 };
-
-        appearancePanel.Children.Add(new TextBlock
-        {
-            Text = "外观",
-            FontSize = 16,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = tm.Text,
-        });
-
-        // 主题模式
-        var themePanel = new StackPanel { Spacing = 6 };
-        themePanel.Children.Add(new TextBlock { Text = "主题", FontSize = 12, Foreground = tm.SubText });
-        var themeButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        themeButtons.Children.Add(MakeThemeButton("跟随系统", ThemeMode.System));
-        themeButtons.Children.Add(MakeThemeButton("亮色", ThemeMode.Light));
-        themeButtons.Children.Add(MakeThemeButton("暗色", ThemeMode.Dark));
-        themePanel.Children.Add(themeButtons);
-        appearancePanel.Children.Add(themePanel);
-
-        // 主题色（保留滑块）
-        var colorPanel = new StackPanel { Spacing = 6 };
-        colorPanel.Children.Add(new TextBlock { Text = "主题色", FontSize = 12, Foreground = tm.SubText });
-
+        // ── 主题色 ──
+        panel.Children.Add(new TextBlock { Text = "主题色", FontWeight = FontWeights.SemiBold });
         var color = tm.AccentColor;
-        var slidersPanel = new StackPanel { Spacing = 4 };
-        slidersPanel.Children.Add(MakeColorSlider("R", color.R, v => UpdateThemeColor((byte)v, color.G, color.B)));
-        slidersPanel.Children.Add(MakeColorSlider("G", color.G, v => UpdateThemeColor(color.R, (byte)v, color.B)));
-        slidersPanel.Children.Add(MakeColorSlider("B", color.B, v => UpdateThemeColor(color.R, color.G, (byte)v)));
-        colorPanel.Children.Add(slidersPanel);
 
         // RGB/HEX 切换
-        var togglePanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var togglePanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var btnRgb = new Button
         {
             Content = "RGB",
@@ -128,7 +92,6 @@ internal sealed class SettingsControl : UserControl
         btnHex.Click += (_, _) => { _isHexMode = true; BuildUI(); };
         togglePanel.Children.Add(btnRgb);
         togglePanel.Children.Add(btnHex);
-        colorPanel.Children.Add(togglePanel);
 
         if (_isHexMode)
         {
@@ -136,16 +99,17 @@ internal sealed class SettingsControl : UserControl
             {
                 Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}",
                 FontSize = 13,
-                Background = tm.Surface,
-                Foreground = tm.Text,
                 CornerRadius = new CornerRadius(8),
+                MaxWidth = 200,
+                HorizontalAlignment = HorizontalAlignment.Left,
             };
             _hexInput.KeyDown += (_, args) =>
             {
                 if (args.Key == Windows.System.VirtualKey.Enter)
                     TryParseHex(_hexInput.Text);
             };
-            colorPanel.Children.Add(_hexInput);
+            _hexInput.LostFocus += (_, _) => TryParseHex(_hexInput.Text);
+            togglePanel.Children.Add(_hexInput);
         }
         else
         {
@@ -163,232 +127,233 @@ internal sealed class SettingsControl : UserControl
             rgbInputs.Children.Add(_rInput);
             rgbInputs.Children.Add(_gInput);
             rgbInputs.Children.Add(_bInput);
-            colorPanel.Children.Add(rgbInputs);
+            togglePanel.Children.Add(rgbInputs);
         }
 
+        panel.Children.Add(togglePanel);
+
         // 颜色预览
-        var previewPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
+        var previewPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         previewPanel.Children.Add(new Ellipse { Width = 24, Height = 24, Fill = tm.Accent });
         previewPanel.Children.Add(new TextBlock
         {
             Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}",
             FontSize = 12,
-            Foreground = tm.Text,
+            Foreground = tm.SubText,
             VerticalAlignment = VerticalAlignment.Center,
         });
-        colorPanel.Children.Add(previewPanel);
-        appearancePanel.Children.Add(colorPanel);
+        panel.Children.Add(previewPanel);
 
-        // ── 不透明度控制 ──
-        appearancePanel.Children.Add(new TextBlock { Text = "不透明度", FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = tm.Text, Margin = new Thickness(0, 8, 0, 0) });
+        // ── 窗口不透明度 ──
+        panel.Children.Add(new TextBlock { Text = "不透明度", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
+        panel.Children.Add(BuildSliderWithTextBox("窗口不透明度", _settings.WindowOpacity, 0.3, 1.0,
+            v => { _settings.WindowOpacity = v; ApplyOpacity(); },
+            step: 0.05, format: "0%"));
 
-        // 窗口不透明度
-        appearancePanel.Children.Add(MakeOpacitySlider("窗口不透明度", _settings.WindowOpacity, v =>
-        {
-            _settings.WindowOpacity = v;
-            ApplyOpacity();
-        }));
+        panel.Children.Add(BuildSliderWithTextBox("面板不透明度", _settings.PanelOpacity, 0.3, 1.0,
+            v => { _settings.PanelOpacity = v; ApplyOpacity(); },
+            step: 0.05, format: "0%"));
 
-        // 面板不透明度
-        appearancePanel.Children.Add(MakeOpacitySlider("面板不透明度", _settings.PanelOpacity, v =>
-        {
-            _settings.PanelOpacity = v;
-            ApplyOpacity();
-        }));
+        // ── 背景图片 ──
+        panel.Children.Add(new TextBlock { Text = "背景图片", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
+        var bgPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
-        // 背景图不透明度
-        appearancePanel.Children.Add(MakeOpacitySlider("背景图不透明度", _settings.BackgroundImageOpacity, v =>
+        var bgPathLabel = new TextBlock
         {
-            _settings.BackgroundImageOpacity = v;
-            _main?.SetBackgroundImageOpacity(v);
-            _settings.Save();
-        }));
-
-        // 背景图选择
-        var bgPanel = new StackPanel { Spacing = 6 };
-        bgPanel.Children.Add(new TextBlock { Text = "窗口背景图", FontSize = 12, Foreground = tm.SubText });
-        var bgButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var btnBrowseBg = new Button
-        {
-            Content = "选择图片…",
-            FontSize = 12,
-            Background = tm.Surface,
-            Foreground = tm.Text,
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 6, 12, 6),
-        };
-        btnBrowseBg.Click += OnBrowseBackground;
-        bgButtons.Children.Add(btnBrowseBg);
-        var btnClearBg = new Button
-        {
-            Content = "清除",
-            FontSize = 12,
-            Background = tm.Surface,
-            Foreground = tm.Text,
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 6, 12, 6),
-        };
-        btnClearBg.Click += (_, _) =>
-        {
-            _settings.BackgroundImagePath = null;
-            _settings.Save();
-            _main?.ApplyAllSettings(_settings);
-            BuildUI();
-        };
-        bgButtons.Children.Add(btnClearBg);
-        bgPanel.Children.Add(bgButtons);
-        bgPanel.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrEmpty(_settings.BackgroundImagePath) ? "未设置" : _settings.BackgroundImagePath,
-            FontSize = 10,
-            Foreground = tm.SubText,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 380,
-        });
-        appearancePanel.Children.Add(bgPanel);
-
-        // 模糊模式
-        var blurPanel = new StackPanel { Spacing = 6 };
-        blurPanel.Children.Add(new TextBlock { Text = "背景模糊效果", FontSize = 12, Foreground = tm.SubText });
-        var blurButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        blurButtons.Children.Add(MakeBlurButton("默认", BlurMode.None));
-        blurButtons.Children.Add(MakeBlurButton("云母", BlurMode.Mica));
-        blurButtons.Children.Add(MakeBlurButton("亚克力", BlurMode.Acrylic));
-        blurPanel.Children.Add(blurButtons);
-
-        // 模糊半径（像素）
-        var blurRadiusPanel = new StackPanel { Spacing = 4 };
-        var blurRadiusLabel = new TextBlock
-        {
-            Text = $"模糊半径: {_settings.BlurRadius:F0}px",
-            FontSize = 12,
-            Foreground = tm.SubText,
-        };
-        blurRadiusPanel.Children.Add(blurRadiusLabel);
-
-        var blurRadiusInputPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var blurSlider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 50,
-            Value = Math.Min(_settings.BlurRadius, 50),
-            Width = 220,
-            Foreground = tm.Accent,
-            SmallChange = 1,
-            LargeChange = 5,
-            StepFrequency = 1,
+            Text = string.IsNullOrEmpty(_settings.BackgroundImagePath) ? "(无)" : System.IO.Path.GetFileName(_settings.BackgroundImagePath),
+            VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 140,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
-        var blurInput = new TextBox
+        var selectBgBtn = new Button { Content = "选择图片" };
+        selectBgBtn.Click += (_, _) =>
         {
-            Text = _settings.BlurRadius.ToString("F0"),
-            FontSize = 12,
-            Width = 55,
-            Background = tm.Surface,
-            Foreground = tm.Text,
-            CornerRadius = new CornerRadius(6),
-        };
-
-        blurSlider.ValueChanged += (_, args) =>
-        {
-            double val = args.NewValue;
-            blurInput.Text = val.ToString("F0");
-            blurRadiusLabel.Text = $"模糊半径: {val:F0}px";
-            _settings.BlurRadius = val;
-            ApplyBlur();
-            ApplySettings();
-        };
-
-        blurInput.KeyDown += (_, args) =>
-        {
-            if (args.Key == Windows.System.VirtualKey.Enter && double.TryParse(blurInput.Text, out var val))
+            var path = OnBrowseBackground();
+            if (!string.IsNullOrEmpty(path))
             {
-                val = Math.Max(0, val);
-                blurSlider.Value = Math.Min(val, 50);
-                blurRadiusLabel.Text = $"模糊半径: {val:F0}px";
-                _settings.BlurRadius = val;
-                ApplyBlur();
+                _settings.BackgroundImagePath = path;
+                bgPathLabel.Text = System.IO.Path.GetFileName(path);
                 ApplySettings();
             }
         };
 
-        blurRadiusInputPanel.Children.Add(blurSlider);
-        blurRadiusInputPanel.Children.Add(blurInput);
-        blurRadiusPanel.Children.Add(blurRadiusInputPanel);
-        blurPanel.Children.Add(blurRadiusPanel);
+        var clearBgBtn = new Button { Content = "恢复默认" };
+        clearBgBtn.Click += (_, _) =>
+        {
+            _settings.BackgroundImagePath = null;
+            bgPathLabel.Text = "(无)";
+            ApplySettings();
+        };
 
-        appearancePanel.Children.Add(blurPanel);
+        bgPanel.Children.Add(bgPathLabel);
+        bgPanel.Children.Add(selectBgBtn);
+        bgPanel.Children.Add(clearBgBtn);
+        panel.Children.Add(bgPanel);
 
-        appearanceCard.Child = appearancePanel;
-        contentPanel.Children.Add(appearanceCard);
+        panel.Children.Add(BuildSliderWithTextBox("背景图不透明度", _settings.BackgroundImageOpacity, 0.0, 1.0,
+            v => { _settings.BackgroundImageOpacity = v; _main?.SetBackgroundImageOpacity(v); ApplySettings(); },
+            step: 0.05, format: "0%"));
 
-        Grid.SetRow(contentPanel, 0);
-        root.Children.Add(contentPanel);
+        // ── 背景模糊 ──
+        panel.Children.Add(new TextBlock { Text = "背景效果", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
+        var blurPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
 
-        scroll.Content = root;
+        var blurNoneRadio = new RadioButton { Content = "默认" };
+        var blurMicaRadio = new RadioButton { Content = "云母 (Mica)" };
+        var blurAcrylicRadio = new RadioButton { Content = "亚克力 (Acrylic)" };
+
+        switch (_settings.Blur)
+        {
+            case BlurMode.Mica: blurMicaRadio.IsChecked = true; break;
+            case BlurMode.Acrylic: blurAcrylicRadio.IsChecked = true; break;
+            default: blurNoneRadio.IsChecked = true; break;
+        }
+
+        blurNoneRadio.Checked += (_, _) => { _settings.Blur = BlurMode.None; ApplySettings(); };
+        blurMicaRadio.Checked += (_, _) => { _settings.Blur = BlurMode.Mica; ApplySettings(); };
+        blurAcrylicRadio.Checked += (_, _) => { _settings.Blur = BlurMode.Acrylic; ApplySettings(); };
+
+        blurPanel.Children.Add(blurNoneRadio);
+        blurPanel.Children.Add(blurMicaRadio);
+        blurPanel.Children.Add(blurAcrylicRadio);
+        panel.Children.Add(blurPanel);
+
+        // 模糊半径（像素半径，滑块 0-255，文本框可到 1024）
+        panel.Children.Add(BuildSliderWithTextBox("模糊半径", _settings.BlurRadius, 0, 255,
+            v => { _settings.BlurRadius = v; ApplyBlur(); ApplySettings(); },
+            step: 1, format: "0", textMin: 0, textMax: 1024));
+
+        scroll.Content = panel;
         Content = scroll;
     }
 
-    private StackPanel MakeOpacitySlider(string label, double value, Action<double> onChanged)
+    // ⭐ 核心复用组件：Slider + TextBox + ±按钮 三件套（OsuCursorWin3 模板）
+    private FrameworkElement BuildSliderWithTextBox(
+        string label, double value,
+        double sliderMin, double sliderMax,
+        Action<double> apply,
+        double step = 1.0, string format = "0.##",
+        double? textMin = null, double? textMax = null)
     {
-        var tm = ThemeManager.Instance;
-        var panel = new StackPanel { Spacing = 4 };
-        int percent = (int)Math.Round(value * 100);
-        var valueLabel = new TextBlock
-        {
-            Text = $"{label}: {percent}%",
-            FontSize = 12,
-            Foreground = tm.SubText,
-        };
-        panel.Children.Add(valueLabel);
+        double tMin = textMin ?? sliderMin;
+        double tMax = textMax ?? sliderMax;
 
-        var inputPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        // 四列布局：标签 | Slider | TextBox | ±按钮
+        var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110, GridUnitType.Pixel) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70, GridUnitType.Pixel) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var labelText = new TextBlock
+        {
+            Text = label,
+            FontSize = 12,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
         var slider = new Slider
         {
-            Minimum = 5,
-            Maximum = 100,
-            Value = percent,
-            Width = 220,
-            Foreground = tm.Accent,
-            SmallChange = 1,
-            LargeChange = 10,
-            StepFrequency = 1,
+            Minimum = sliderMin,
+            Maximum = sliderMax,
+            Value = Math.Clamp(value, sliderMin, sliderMax),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 8, 0),
+            SmallChange = step,
+            LargeChange = step * 10,
+            StepFrequency = step,
         };
 
-        var input = new TextBox
+        var valueBox = new TextBox
         {
-            Text = percent.ToString(),
-            FontSize = 12,
-            Width = 55,
-            Background = tm.Surface,
-            Foreground = tm.Text,
-            CornerRadius = new CornerRadius(6),
+            Text = value.ToString(format),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
         };
 
-        slider.ValueChanged += (_, args) =>
+        // ± 按钮：TextBlock 作 Content（保证居中），32×32
+        var minusText = new TextBlock
         {
-            int pct = (int)Math.Round(args.NewValue);
-            input.Text = pct.ToString();
-            valueLabel.Text = $"{label}: {pct}%";
-            onChanged(pct / 100.0);
+            Text = "−",
+            FontSize = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var plusText = new TextBlock
+        {
+            Text = "+",
+            FontSize = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var minusBtn = new Button
+        {
+            Content = minusText,
+            Width = 32,
+            Height = 32,
+            Padding = new Thickness(0),
+            Margin = new Thickness(2, 0, 1, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        var plusBtn = new Button
+        {
+            Content = plusText,
+            Width = 32,
+            Height = 32,
+            Padding = new Thickness(0),
+            Margin = new Thickness(1, 0, 2, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
         };
 
-        input.KeyDown += (_, args) =>
+        // Slider → TextBox + apply
+        slider.ValueChanged += (_, _) =>
         {
-            if (args.Key == Windows.System.VirtualKey.Enter && int.TryParse(input.Text, out var pct))
+            var v = Math.Clamp(slider.Value, sliderMin, sliderMax);
+            valueBox.Text = v.ToString(format);
+            apply(v);
+        };
+
+        // TextBox 输入（可超出 slider 范围，但受 textMin/textMax 约束）
+        void ApplyFromText()
+        {
+            if (double.TryParse(valueBox.Text, out var v))
             {
-                pct = Math.Clamp(pct, 5, 100);
-                slider.Value = pct;
-                valueLabel.Text = $"{label}: {pct}%";
-                onChanged(pct / 100.0);
+                v = Math.Clamp(v, tMin, tMax);
+                if (v >= sliderMin && v <= sliderMax) slider.Value = v;
+                valueBox.Text = v.ToString(format);
+                apply(v);
             }
+            else valueBox.Text = slider.Value.ToString(format);
+        }
+
+        valueBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter) { ApplyFromText(); e.Handled = true; }
         };
+        valueBox.LostFocus += (_, _) => ApplyFromText();
 
-        inputPanel.Children.Add(slider);
-        inputPanel.Children.Add(input);
-        panel.Children.Add(inputPanel);
+        // ± 按钮
+        minusBtn.Click += (_, _) => { slider.Value = Math.Max(sliderMin, slider.Value - step); };
+        plusBtn.Click += (_, _) => { slider.Value = Math.Min(sliderMax, slider.Value + step); };
 
-        return panel;
+        var buttonsPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        buttonsPanel.Children.Add(minusBtn);
+        buttonsPanel.Children.Add(plusBtn);
+
+        Grid.SetColumn(labelText, 0);
+        Grid.SetColumn(slider, 1);
+        Grid.SetColumn(valueBox, 2);
+        Grid.SetColumn(buttonsPanel, 3);
+        grid.Children.Add(labelText);
+        grid.Children.Add(slider);
+        grid.Children.Add(valueBox);
+        grid.Children.Add(buttonsPanel);
+
+        return grid;
     }
 
     private void ApplyOpacity()
@@ -404,8 +369,6 @@ internal sealed class SettingsControl : UserControl
         {
             Text = value.ToString(),
             FontSize = 13,
-            Background = tm.Surface,
-            Foreground = tm.Text,
             CornerRadius = new CornerRadius(8),
             Header = header,
         };
@@ -426,121 +389,29 @@ internal sealed class SettingsControl : UserControl
         return tb;
     }
 
-    private UIElement MakeColorSlider(string label, byte current, Action<double> onChanged)
+    private string? OnBrowseBackground()
     {
-        var tm = ThemeManager.Instance;
-        var panel = new Grid { ColumnSpacing = 8 };
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var labelText = new TextBlock
+        try
         {
-            Text = label,
-            FontSize = 12,
-            Foreground = tm.Text,
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 18,
-        };
-        Grid.SetColumn(labelText, 0);
-        panel.Children.Add(labelText);
+            var picker = new Windows.Storage.Pickers.FileOpenPicker
+            {
+                ViewMode = Windows.Storage.Pickers.PickerViewMode.Thumbnail,
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary,
+            };
+            picker.FileTypeFilter.Add(".png");
+            picker.FileTypeFilter.Add(".jpg");
+            picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".bmp");
+            picker.FileTypeFilter.Add(".webp");
 
-        var slider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 255,
-            Value = current,
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = tm.Accent,
-            SmallChange = 1,
-            LargeChange = 10,
-            StepFrequency = 1,
-        };
-        slider.ValueChanged += (_, args) => onChanged(args.NewValue);
-        Grid.SetColumn(slider, 1);
-        panel.Children.Add(slider);
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_main!);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
-        var valueText = new TextBlock
+            return picker.PickSingleFileAsync().AsTask().Result?.Path;
+        }
+        catch
         {
-            Text = current.ToString(),
-            FontSize = 12,
-            Foreground = tm.SubText,
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 28,
-        };
-        Grid.SetColumn(valueText, 2);
-        panel.Children.Add(valueText);
-
-        return panel;
-    }
-
-    private Button MakeThemeButton(string text, ThemeMode mode)
-    {
-        var tm = ThemeManager.Instance;
-        var btn = new Button
-        {
-            Content = text,
-            FontSize = 12,
-            Background = _settings.Theme == mode ? tm.Accent : tm.Surface,
-            Foreground = _settings.Theme == mode ? new SolidColorBrush(Colors.White) : tm.Text,
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 6, 12, 6),
-        };
-        btn.Click += (_, _) =>
-        {
-            _settings.Theme = mode;
-            ThemeManager.Instance.Mode = mode;
-            ApplySettings();
-            BuildUI();
-        };
-        return btn;
-    }
-
-    private Button MakeBlurButton(string text, BlurMode mode)
-    {
-        var tm = ThemeManager.Instance;
-        var btn = new Button
-        {
-            Content = text,
-            FontSize = 12,
-            Background = _settings.Blur == mode ? tm.Accent : tm.Surface,
-            Foreground = _settings.Blur == mode ? new SolidColorBrush(Colors.White) : tm.Text,
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 6, 12, 6),
-        };
-        btn.Click += (_, _) =>
-        {
-            _settings.Blur = mode;
-            ApplyBlur();
-            ApplySettings();
-            BuildUI();
-        };
-        return btn;
-    }
-
-    private async void OnBrowseBackground(object sender, RoutedEventArgs e)
-    {
-        var picker = new Windows.Storage.Pickers.FileOpenPicker
-        {
-            ViewMode = Windows.Storage.Pickers.PickerViewMode.Thumbnail,
-            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary,
-        };
-        picker.FileTypeFilter.Add(".png");
-        picker.FileTypeFilter.Add(".jpg");
-        picker.FileTypeFilter.Add(".jpeg");
-        picker.FileTypeFilter.Add(".bmp");
-        picker.FileTypeFilter.Add(".webp");
-
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_main!);
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-
-        var result = await picker.PickSingleFileAsync().AsTask();
-        if (result != null)
-        {
-            _settings.BackgroundImagePath = result.Path;
-            _settings.Save();
-            _main?.ApplyAllSettings(_settings);
-            BuildUI();
+            return null;
         }
     }
 
@@ -598,4 +469,11 @@ internal sealed class SettingsControl : UserControl
             if (_main != null) _main.SystemBackdrop = null;
         }
     }
+
+    private static TextBlock Header(string text) => new()
+    {
+        Text = text,
+        FontSize = 20,
+        FontWeight = FontWeights.SemiBold
+    };
 }

@@ -1,13 +1,16 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Microsoft.UI;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using WinRT.Interop;
@@ -42,7 +45,6 @@ internal sealed class MainWindow : Window
     private CancellationTokenSource? _cts;
 
     private NavigationView? _nav;
-    private ContentControl? _contentHost;
     private Grid? _rootGrid;
     private Image? _bgImage;
     private Border? _titleBar;
@@ -101,9 +103,9 @@ internal sealed class MainWindow : Window
 
         var mainLayer = new Grid();
         mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32, GridUnitType.Pixel) });
-        mainLayer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
+        // ── 标题栏（32px，主题色跟随） ──
         _titleBar = new Border
         {
             Background = GetTitleBarBrush(Settings.Load().WindowOpacity),
@@ -124,7 +126,7 @@ internal sealed class MainWindow : Window
             Text = "Kugo Music Converter — 酷狗加密音频解密工具箱",
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = ThemeManager.Instance.Text,
+            Foreground = GetTitleBarForeground(),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 0, 0),
         };
@@ -148,31 +150,127 @@ internal sealed class MainWindow : Window
         Grid.SetRow(_titleBar, 0);
         mainLayer.Children.Add(_titleBar);
 
+        // ── 侧边栏（LeftCompact 展开-收起式，默认收起） ──
         _nav = new NavigationView
         {
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
-            PaneDisplayMode = NavigationViewPaneDisplayMode.Top,
+            PaneDisplayMode = NavigationViewPaneDisplayMode.LeftCompact,
+            OpenPaneLength = 200,
+            CompactPaneLength = 48,
+            IsPaneOpen = false,
         };
         _nav.MenuItems.Add(new NavigationViewItem { Content = "转换", Icon = new SymbolIcon(Symbol.Sync), Tag = "convert" });
         _nav.MenuItems.Add(new NavigationViewItem { Content = "设置", Icon = new SymbolIcon(Symbol.Setting), Tag = "settings" });
         _nav.MenuItems.Add(new NavigationViewItem { Content = "关于", Icon = new SymbolIcon(Symbol.OutlineStar), Tag = "about" });
         _nav.SelectionChanged += Nav_SelectionChanged;
+        _nav.Loaded += (_, _) =>
+        {
+            try { _nav.SelectedItem = _nav.MenuItems[0]; }
+            catch { }
+            SyncSidebarBackground();
+        };
         Grid.SetRow(_nav, 1);
         mainLayer.Children.Add(_nav);
-
-        _contentHost = new ContentControl
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-        };
-        Grid.SetRow(_contentHost, 2);
-        mainLayer.Children.Add(_contentHost);
 
         _rootGrid.Children.Add(mainLayer);
         Content = _rootGrid;
 
-        _contentHost.Content = new ConvertControl(this);
+        _nav.Content = new ConvertControl(this);
+    }
+
+    // ── 侧边栏背景同步（OsuCursorWin3 模板：VisualTreeHelper 找 SplitView） ──
+
+    private void SyncSidebarBackground()
+    {
+        try
+        {
+            var splitView = FindSplitViewPane(_nav);
+            if (splitView?.Pane is not FrameworkElement pane) return;
+
+            var isDark = IsDarkTheme();
+            var bg = new SolidColorBrush(isDark
+                ? ColorHelper.FromArgb(255, 0x2D, 0x2D, 0x2D)
+                : Colors.White);
+
+            if (pane is Panel panel)
+            {
+                panel.Background = bg;
+            }
+            else if (pane is Border border)
+            {
+                border.Background = bg;
+                // 左侧直角贴窗边，右侧 12px 圆角
+                border.CornerRadius = new CornerRadius(0, 12, 12, 0);
+            }
+
+            ApplyRoundedClip(pane);
+        }
+        catch { }
+    }
+
+    private static SplitView? FindSplitViewPane(DependencyObject? parent)
+    {
+        if (parent == null) return null;
+
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is SplitView sv)
+                return sv;
+
+            var result = FindSplitViewPane(child);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private static void ApplyRoundedClip(FrameworkElement pane)
+    {
+        try
+        {
+            var compositor = ElementCompositionPreview.GetElementVisual(pane).Compositor;
+            var clip = compositor.CreateRectangleClip();
+            clip.TopLeftRadius = new Vector2(0, 0);
+            clip.TopRightRadius = new Vector2(12, 12);
+            clip.BottomLeftRadius = new Vector2(0, 0);
+            clip.BottomRightRadius = new Vector2(12, 12);
+            SyncClipBounds(clip, pane);
+            ElementCompositionPreview.GetElementVisual(pane).Clip = clip;
+
+            pane.SizeChanged += (s, e) =>
+            {
+                try { SyncClipBounds(clip, pane); }
+                catch { }
+            };
+        }
+        catch { }
+    }
+
+    private static void SyncClipBounds(RectangleClip clip, FrameworkElement pane)
+    {
+        clip.Left = 0f;
+        clip.Top = 0f;
+        clip.Right = (float)pane.ActualWidth;
+        clip.Bottom = (float)pane.ActualHeight;
+    }
+
+    private bool IsDarkTheme() => ThemeManager.Instance.IsDark;
+
+    private Brush GetTitleBarForeground()
+    {
+        return IsDarkTheme() ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black);
+    }
+
+    private Brush GetTitleBarBrush(double opacity)
+    {
+        double titleOpacity = opacity <= 0.9 ? Math.Min(1.0, opacity + 0.1) : opacity;
+        var isDark = IsDarkTheme();
+        var color = isDark
+            ? ColorHelper.FromArgb((byte)(titleOpacity * 255), 0x2D, 0x2D, 0x2D)
+            : ColorHelper.FromArgb((byte)(titleOpacity * 255), 0xF3, 0xF3, 0xF3);
+        return new SolidColorBrush(color);
     }
 
     private void TitleBar_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -186,25 +284,25 @@ internal sealed class MainWindow : Window
         catch { }
     }
 
-    private SolidColorBrush GetTitleBarBrush(double opacity)
-    {
-        double titleOpacity = opacity <= 0.9 ? Math.Min(1.0, opacity + 0.1) : opacity;
-        var bgColor = ThemeManager.Instance.Background.Color;
-        return new SolidColorBrush(ColorHelper.FromArgb((byte)(titleOpacity * 255), bgColor.R, bgColor.G, bgColor.B));
-    }
-
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
         {
-            _contentHost!.Content = tag switch
-            {
-                "convert" => new ConvertControl(this),
-                "settings" => new SettingsControl(this),
-                "about" => new AboutControl(this),
-                _ => new ConvertControl(this)
-            };
+            _nav!.Content = BuildPage(tag);
         }
+    }
+
+    // ── 页面分发（OsuCursorWin3 模板：BuildPage(tag) 动态重建） ──
+
+    private object BuildPage(string tag)
+    {
+        return tag switch
+        {
+            "convert" => new ConvertControl(this),
+            "settings" => new SettingsControl(this),
+            "about" => new AboutControl(this),
+            _ => new ConvertControl(this)
+        };
     }
 
     internal void ApplyAllSettings(Settings settings)
@@ -215,6 +313,10 @@ internal sealed class MainWindow : Window
         ApplyBlurMode(settings.Blur, settings.Theme);
         ApplyBackgroundImage(settings.BackgroundImagePath);
         ApplyOpacity(settings.WindowOpacity, settings.PanelOpacity);
+
+        if (_titleBar != null) _titleBar.Background = GetTitleBarBrush(settings.WindowOpacity);
+        if (_titleText != null) _titleText.Foreground = GetTitleBarForeground();
+        SyncSidebarBackground();
     }
 
     private void ApplyBlurMode(BlurMode blur, ThemeMode theme)
@@ -252,16 +354,10 @@ internal sealed class MainWindow : Window
         }
     }
 
-    private void ApplyMicaIntensity(double intensity)
-    {
-        // 使用 MicaBackdrop.TintIntensity 直接控制
-    }
-
     internal void ApplyBlurRadius(double radius, BlurMode mode)
     {
         _blurRadius = radius;
 
-        // 如果有背景图，重新应用软件模糊
         if (_bgImage != null && _originalBgImage != null)
         {
             if (radius > 0)
@@ -277,7 +373,6 @@ internal sealed class MainWindow : Window
         }
         else
         {
-            // 没有背景图时，使用 SystemBackdropElement（SDK 2.0+）
             ApplySystemBackdrop(mode);
         }
     }
@@ -286,11 +381,9 @@ internal sealed class MainWindow : Window
     {
         if (_rootGrid == null) return;
 
-        // 移除旧的 SystemBackdropElement
         var oldSbe = _rootGrid.Children.FirstOrDefault(c => c is SystemBackdropElement);
         if (oldSbe != null) _rootGrid.Children.Remove(oldSbe);
 
-        // 移除旧的覆盖层
         var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
         if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
 
@@ -298,7 +391,6 @@ internal sealed class MainWindow : Window
 
         try
         {
-            // 使用 SystemBackdropElement 实现真正的系统模糊
             var sbe = new SystemBackdropElement
             {
                 Name = "SystemBackdropElement",
@@ -314,12 +406,10 @@ internal sealed class MainWindow : Window
                 sbe.SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
             }
 
-            // 插入到 mainLayer 下面（索引 1，在 _bgImage 之后）
             _rootGrid.Children.Insert(1, sbe);
         }
         catch
         {
-            // 系统模糊不可用时回退到覆盖层
             var overlay = new Border
             {
                 Name = "BlurOverlay",
@@ -340,12 +430,10 @@ internal sealed class MainWindow : Window
         {
             try
             {
-                // 加载图像（未模糊版本）
                 var wb = LoadImageToWriteableBitmap(path);
                 if (wb != null)
                 {
                     _originalBgImage = wb;
-                    // 应用当前模糊半径
                     if (_blurRadius > 0)
                     {
                         var blurred = GaussianBlurHelper.Blur(wb, (int)_blurRadius);
@@ -383,7 +471,6 @@ internal sealed class MainWindow : Window
             using var stream = System.IO.File.OpenRead(path);
             var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
             bitmap.SetSource(stream.AsRandomAccessStream());
-            // 等待图像加载完成
             var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap((int)bitmap.PixelWidth, (int)bitmap.PixelHeight);
             using var fileStream = System.IO.File.OpenRead(path);
             wb.SetSource(fileStream.AsRandomAccessStream());
