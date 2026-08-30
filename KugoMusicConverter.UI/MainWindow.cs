@@ -185,10 +185,16 @@ internal sealed class MainWindow : Window
     {
         try
         {
+            var isDark = IsDarkTheme();
+            if (_nav != null)
+            {
+                // 让菜单文字/图标颜色跟随主题（亮色→黑字）
+                _nav.RequestedTheme = isDark ? ElementTheme.Dark : ElementTheme.Light;
+            }
+
             var splitView = FindSplitViewPane(_nav);
             if (splitView?.Pane is not FrameworkElement pane) return;
 
-            var isDark = IsDarkTheme();
             var bg = new SolidColorBrush(isDark
                 ? ColorHelper.FromArgb(255, 0x2D, 0x2D, 0x2D)
                 : Colors.White);
@@ -309,6 +315,18 @@ internal sealed class MainWindow : Window
     {
         ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
         ThemeManager.Instance.Mode = settings.Theme;
+
+        // 关键：root 的 RequestedTheme 决定 NavigationView 菜单文字/图标颜色
+        // （亮色主题下侧边栏字符才变黑）
+        if (_rootGrid != null)
+        {
+            _rootGrid.RequestedTheme = settings.Theme switch
+            {
+                ThemeMode.Light => ElementTheme.Light,
+                ThemeMode.Dark => ElementTheme.Dark,
+                _ => ElementTheme.Default
+            };
+        }
 
         ApplyBlurMode(settings.Blur, settings.Theme);
         ApplyBackgroundImage(settings.BackgroundImagePath);
@@ -501,8 +519,6 @@ internal sealed class MainWindow : Window
         {
             _titleBar.Background = GetTitleBarBrush(windowOpacity);
         }
-
-        ThemeManager.Instance.PanelOpacity = panelOpacity;
     }
 
     internal void SetBackgroundImageOpacity(double opacity)

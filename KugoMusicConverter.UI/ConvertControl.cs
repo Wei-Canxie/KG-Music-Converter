@@ -58,18 +58,25 @@ internal sealed class ConvertControl : UserControl
     {
         var tm = ThemeManager.Instance;
 
-        var scroll = new ScrollViewer
+        // V2rayN Vertical 风格：左操作区 | 灰色分割线 | 右侧全高日志
+        var root = new Grid();
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(480, GridUnitType.Pixel) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // ── 左列：操作区 ──
+        var leftScroll = new ScrollViewer
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
 
-        // 模板风格：扁平 StackPanel + Spacing + Padding，背景透明（透出窗口背景图/模糊）
         var contentPanel = new StackPanel
         {
             Spacing = 16,
             Padding = new Thickness(24, 16, 24, 16),
-            MaxWidth = 900,
+            MaxWidth = 460,
+            HorizontalAlignment = HorizontalAlignment.Left,
         };
 
         // 标题
@@ -107,6 +114,8 @@ internal sealed class ConvertControl : UserControl
             Padding = new Thickness(24),
             AllowDrop = true,
             Height = 72,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = 380,
         };
         dropZone.DragOver += DropZone_DragOver;
         dropZone.Drop += DropZone_Drop;
@@ -115,7 +124,7 @@ internal sealed class ConvertControl : UserControl
             Text = "📁 拖入文件到此处，或点击下方按钮添加",
             FontSize = 14,
             Foreground = tm.SubText,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
         contentPanel.Children.Add(dropZone);
@@ -200,24 +209,6 @@ internal sealed class ConvertControl : UserControl
 
         contentPanel.Children.Add(optionsPanel);
 
-        // 日志区（轻量卡片）
-        _logBox = new TextBox
-        {
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"),
-            FontSize = 11,
-            Background = new SolidColorBrush(ColorHelper.FromArgb(64, 255, 255, 255)),
-            BorderThickness = new Thickness(1),
-            BorderBrush = tm.Border,
-            CornerRadius = new CornerRadius(8),
-            Text = "",
-            MinHeight = 100,
-        };
-        ScrollViewer.SetVerticalScrollBarVisibility(_logBox, ScrollBarVisibility.Auto);
-        contentPanel.Children.Add(_logBox);
-
         // 进度条
         var progressPanel = new StackPanel { Spacing = 6 };
         _progressLabel = new TextBlock
@@ -239,8 +230,8 @@ internal sealed class ConvertControl : UserControl
         progressPanel.Children.Add(_progressBar);
         contentPanel.Children.Add(progressPanel);
 
-        // 按钮
-        var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right };
+        // 按钮（左对齐）
+        var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
 
         _addFilesButton = new Button
         {
@@ -289,8 +280,42 @@ internal sealed class ConvertControl : UserControl
 
         contentPanel.Children.Add(buttonPanel);
 
-        scroll.Content = contentPanel;
-        Content = scroll;
+        leftScroll.Content = contentPanel;
+        Grid.SetColumn(leftScroll, 0);
+        root.Children.Add(leftScroll);
+
+        // ── 中列：灰色分割线 ──
+        var divider = new Border
+        {
+            Width = 1,
+            Background = tm.Border,
+            Margin = new Thickness(0, 12, 0, 12),
+        };
+        Grid.SetColumn(divider, 1);
+        root.Children.Add(divider);
+
+        // ── 右列：日志输出栏（与内容区同高，撑满） ──
+        var logHost = new Grid();
+        _logBox = new TextBox
+        {
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = new FontFamily("Cascadia Code, Consolas, monospace"),
+            FontSize = 11,
+            Background = new SolidColorBrush(ColorHelper.FromArgb(32, 255, 255, 255)),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(0),
+            Text = "",
+            VerticalAlignment = VerticalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(_logBox, ScrollBarVisibility.Auto);
+        logHost.Children.Add(_logBox);
+        Grid.SetColumn(logHost, 2);
+        root.Children.Add(logHost);
+
+        Content = root;
     }
 
     private void DropZone_DragOver(object sender, DragEventArgs e)

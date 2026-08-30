@@ -150,10 +150,6 @@ internal sealed class SettingsControl : UserControl
             v => { _settings.WindowOpacity = v; ApplyOpacity(); },
             step: 0.05, format: "0%"));
 
-        panel.Children.Add(BuildSliderWithTextBox("面板不透明度", _settings.PanelOpacity, 0.3, 1.0,
-            v => { _settings.PanelOpacity = v; ApplyOpacity(); },
-            step: 0.05, format: "0%"));
-
         // ── 背景图片 ──
         panel.Children.Add(new TextBlock { Text = "背景图片", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
         var bgPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -359,7 +355,7 @@ internal sealed class SettingsControl : UserControl
     private void ApplyOpacity()
     {
         _settings.Save();
-        _main?.ApplyOpacity(_settings.WindowOpacity, _settings.PanelOpacity);
+        _main?.ApplyOpacity(_settings.WindowOpacity, _settings.WindowOpacity);
     }
 
     private TextBox MakeRgbInput(byte value, string header, Action<byte> onChanged)
