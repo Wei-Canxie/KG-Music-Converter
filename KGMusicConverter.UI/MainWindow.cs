@@ -91,7 +91,6 @@ internal sealed class MainWindow : Window
     private Button? _startButton;
     private Button? _cancelButton;
     private ListView? _queueList;
-    private CheckBox? _skipCopyCheck;
     private CheckBox? _convertMp3Check;
     private CheckBox? _convertWavCheck;
     private CheckBox? _convertFlacCheck;
@@ -1288,7 +1287,6 @@ internal sealed class MainWindow : Window
     internal Button? StartButton { get => _startButton; set => _startButton = value; }
     internal Button? CancelButton { get => _cancelButton; set => _cancelButton = value; }
     internal ListView? QueueList { get => _queueList; set => _queueList = value; }
-    internal CheckBox? SkipCopyCheck { get => _skipCopyCheck; set => _skipCopyCheck = value; }
     internal CheckBox? ConvertMp3Check { get => _convertMp3Check; set => _convertMp3Check = value; }
     internal CheckBox? ConvertWavCheck { get => _convertWavCheck; set => _convertWavCheck = value; }
     internal CheckBox? ConvertFlacCheck { get => _convertFlacCheck; set => _convertFlacCheck = value; }
@@ -1303,7 +1301,6 @@ internal sealed class MainWindow : Window
     /// <summary>转换页选项是"即时生效"的运行选项（V2rayN 风格），不属于草稿模型。</summary>
     internal void SaveRunOptions()
     {
-        _live.SkipCopy = _skipCopyCheck?.IsChecked ?? false;
         _live.ConvertMp3 = _convertMp3Check?.IsChecked ?? false;
         _live.ConvertWav = _convertWavCheck?.IsChecked ?? false;
         _live.ConvertFlac = _convertFlacCheck?.IsChecked ?? false;
@@ -1315,7 +1312,6 @@ internal sealed class MainWindow : Window
         // 逐个字段抄而不是整体 Clone：设置页的草稿里可能还有未应用的编辑。
         void Sync(Settings s)
         {
-            s.SkipCopy = _live.SkipCopy;
             s.ConvertMp3 = _live.ConvertMp3;
             s.ConvertWav = _live.ConvertWav;
             s.ConvertFlac = _live.ConvertFlac;

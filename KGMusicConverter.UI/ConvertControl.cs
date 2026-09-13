@@ -16,7 +16,7 @@ namespace KGMusicConverter;
 /// 左侧操作区 | 可拖动灰色分割线 | 右侧与内容区同高的日志栏。
 ///
 /// 页面只是视图：队列、日志、运行状态都归 <see cref="MainWindow"/> 所有，
-/// 所以切页或重建页面都不会丢进度；运行选项（跳过复制/转MP3/统一输出）
+/// 所以切页或重建页面都不会丢进度；运行选项（转码格式/删除源文件/统一输出）
 /// 是即时生效的运行选项，不属于"草稿 + 应用"的设置模型。
 /// </summary>
 internal sealed class ConvertControl : ToolPage
@@ -31,7 +31,6 @@ internal sealed class ConvertControl : ToolPage
     private Button? _cancelButton;
     private Button? _addFilesButton;
     private Button? _clearCompletedButton;
-    private CheckBox? _skipCopyCheck;
     private CheckBox? _convertMp3Check;
     private CheckBox? _convertWavCheck;
     private CheckBox? _convertFlacCheck;
@@ -217,16 +216,6 @@ internal sealed class ConvertControl : ToolPage
 
         // 运行选项（即时生效，但记住上次选择）
         var optionsPanel = new StackPanel { Spacing = 10 };
-
-        _skipCopyCheck = new CheckBox
-        {
-            Content = WrapText("跳过复制（文件已在工作目录）"),
-            FontSize = 13,
-            IsChecked = _main.Live.SkipCopy,
-        };
-        _skipCopyCheck.Checked += (_, _) => _main.SaveRunOptions();
-        _skipCopyCheck.Unchecked += (_, _) => _main.SaveRunOptions();
-        optionsPanel.Children.Add(_skipCopyCheck);
 
         // 转码是可选动作，收进展开栏：默认收起不占版面，勾了哪些格式在标题里一眼可见
         _formatSummary = new TextBlock
@@ -475,7 +464,6 @@ internal sealed class ConvertControl : ToolPage
         _main.StartButton = _startButton;
         _main.CancelButton = _cancelButton;
         _main.QueueList = _queueList;
-        _main.SkipCopyCheck = _skipCopyCheck;
         _main.ConvertMp3Check = _convertMp3Check;
         _main.ConvertWavCheck = _convertWavCheck;
         _main.ConvertFlacCheck = _convertFlacCheck;

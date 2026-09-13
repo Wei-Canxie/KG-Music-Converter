@@ -38,8 +38,6 @@ public class Settings
     public byte ThemeB { get; set; } = 0xAB;
 
     // ── 转换页运行选项（即时生效，但记住上次选择） ──
-    public bool SkipCopy { get; set; }
-
     /// <summary>解密后转成这些格式（可多选；默认一个都不勾 = 只解密不转码）。</summary>
     public bool ConvertMp3 { get; set; }
     public bool ConvertWav { get; set; }
@@ -69,7 +67,6 @@ public class Settings
         ThemeR = copy.ThemeR;
         ThemeG = copy.ThemeG;
         ThemeB = copy.ThemeB;
-        SkipCopy = copy.SkipCopy;
         ConvertMp3 = copy.ConvertMp3;
         ConvertWav = copy.ConvertWav;
         ConvertFlac = copy.ConvertFlac;
