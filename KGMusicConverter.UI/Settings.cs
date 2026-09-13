@@ -25,17 +25,17 @@ public class Settings
     private const double MaxOpacity = 1.0;
     private const double MaxBlurRadius = 1024.0;
 
-    // ── 外观 ──
-    public ThemeMode Theme { get; set; } = ThemeMode.Dark;
+    // ── 外观（默认值 = 作者本机调好的那套；背景图片刻意不设，各人自己挑）──
+    public ThemeMode Theme { get; set; } = ThemeMode.System;
     public double WindowOpacity { get; set; } = 0.95;
     public double PanelOpacity { get; set; } = 1.0;
     public double BackgroundImageOpacity { get; set; } = 0.8;
     public string? BackgroundImagePath { get; set; }
     public BlurMode Blur { get; set; } = BlurMode.None;
-    public double BlurRadius { get; set; } = 0;
-    public byte ThemeR { get; set; } = 0xFF;
-    public byte ThemeG { get; set; } = 0x66;
-    public byte ThemeB { get; set; } = 0xAB;
+    public double BlurRadius { get; set; } = 8;
+    public byte ThemeR { get; set; } = 0x33;
+    public byte ThemeG { get; set; } = 0xCC;
+    public byte ThemeB { get; set; } = 0xBB;
 
     // ── 转换页运行选项（即时生效，但记住上次选择） ──
     /// <summary>解密后转成这些格式（可多选；默认一个都不勾 = 只解密不转码）。</summary>

@@ -111,8 +111,7 @@ internal sealed class MainWindow : Window
     public MainWindow()
     {
         Title = "KG Music Converter — 酷狗加密音频解密工具箱";
-        // 转换页现在有 6 个运行选项 + 格式整理工具按钮，750 高会把按钮挤到折叠区外
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 900));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 800));
 
         _live = Settings.Load();
         _draft = _live.Clone();
