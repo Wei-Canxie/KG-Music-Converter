@@ -53,6 +53,7 @@ internal sealed class SettingsControl : ToolPage
         };
 
         page.Children.Add(Header("外观设置"));
+        page.Children.Add(Description("改动先写进草稿，点击右下角“应用”后才会真正生效；点“取消更改”放弃。"));
 
         // ── 主题 ──
         page.Children.Add(Section("主题"));
@@ -81,7 +82,13 @@ internal sealed class SettingsControl : ToolPage
         page.Children.Add(Section("主题色"));
         var colorRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
 
-        var swatch = new Ellipse { Width = 24, Height = 24, Fill = tm.Accent };
+        // 预览块显示<b>草稿</b>里的颜色：这是控件自身的状态回显，不是窗口外观预览
+        var swatch = new Ellipse
+        {
+            Width = 24,
+            Height = 24,
+            Fill = new SolidColorBrush(ColorHelper.FromArgb(255, Draft.ThemeR, Draft.ThemeG, Draft.ThemeB)),
+        };
         colorRow.Children.Add(swatch);
 
         var colorBox = new TextBox
@@ -194,7 +201,6 @@ internal sealed class SettingsControl : ToolPage
             value =>
             {
                 Draft.BackgroundImageOpacity = value;
-                _main.SetBackgroundImageOpacity(value);
                 _main.MarkDirty();
             },
             step: 0.05));
@@ -231,7 +237,6 @@ internal sealed class SettingsControl : ToolPage
             value =>
             {
                 Draft.BlurRadius = value;
-                _main.RefreshBackgroundBlur(value);
                 _main.MarkDirty();
             },
             step: 1,
@@ -247,9 +252,7 @@ internal sealed class SettingsControl : ToolPage
     {
         if (Draft.Theme == mode) return;
         Draft.Theme = mode;
-        _main.MarkDirty();
-        // 主题变了，控件颜色要跟着换 → 重建当前页
-        _main.RebuildCurrentPage();
+        _main.MarkDirty();   // 不做即时预览：等"应用"才换主题
     }
 
     private void SetBlur(BlurMode mode)
@@ -257,6 +260,7 @@ internal sealed class SettingsControl : ToolPage
         if (Draft.Blur == mode) return;
         Draft.Blur = mode;
         _main.MarkDirty();
+        // 重建页面：材质模式下"窗口不透明度"整行要变成禁用 + 改写文案
         _main.RebuildCurrentPage();
     }
 

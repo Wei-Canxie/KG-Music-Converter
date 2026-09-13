@@ -357,17 +357,18 @@ internal sealed class MainWindow : Window
 
     internal Settings Live => _live;
 
-    /// <summary>设置页改了草稿：立即预览外观并浮出应用卡片。</summary>
+    /// <summary>
+    /// 设置页改了草稿：只浮出"应用 / 取消更改"卡片。
+    ///
+    /// 刻意<b>不做</b>即时预览——外观只在按下"应用"之后才真正改变窗口，
+    /// 所以这里不碰 ThemeManager / 不透明度 / 背景，也不重建页面。
+    /// </summary>
     internal void MarkDirty()
     {
-        PreviewDraftAppearance();
         if (_applyBar is not null) _applyBar.Visibility = Visibility.Visible;
     }
 
-    /// <summary>把草稿的外观套到窗口上（不落盘、不提交）。</summary>
-    internal void PreviewDraftAppearance() => ApplyAppearance(_draft, rebuildPage: false);
-
-    /// <summary>应用：草稿 → 运行时实例 → 落盘 → 快照 → 重建页面。</summary>
+    /// <summary>应用：草稿 → 运行时实例 → 落盘 → 快照 → 应用外观 → 重建页面。</summary>
     internal void ApplyDraft()
     {
         try
@@ -387,13 +388,16 @@ internal sealed class MainWindow : Window
         }
     }
 
-    /// <summary>取消更改：从快照回滚草稿并重建页面。</summary>
+    /// <summary>
+    /// 取消更改：从快照回滚草稿并重建页面。
+    /// 窗口外观一直停留在"已应用"状态，所以不需要重新套一遍外观。
+    /// </summary>
     internal void CancelDraft()
     {
         try
         {
             _draft = _applied.Clone();
-            ApplyAppearance(_draft, rebuildPage: true);
+            RebuildCurrentPage();
             HideApplyBar();
             AppLog.Log("Settings changes reverted");
         }
@@ -412,8 +416,8 @@ internal sealed class MainWindow : Window
 
     /// <summary>
     /// 把设置套到窗口上：主题 → 背景材质 → 不透明度 → 标题栏 → 侧边栏。
-    /// <paramref name="rebuildPage"/> 为真时重建当前页（控件颜色需要跟着换），
-    /// 拖动不透明度滑条时传假——否则正在拖的那个滑条会被销毁。
+    /// 只在"应用"更改时调用（<paramref name="rebuildPage"/> 为真 → 重建当前页，
+    /// 已创建控件上的画刷才会换成新主题的颜色）。
     /// </summary>
     internal void ApplyAppearance(Settings settings, bool rebuildPage)
     {
@@ -483,6 +487,13 @@ internal sealed class MainWindow : Window
     {
         if (_bgImage is null) return;
 
+        // 云母 / 亚克力模式下背景图会直接盖住材质，等于把材质白设了 —— 不显示
+        if (IsMaterialActive(settings))
+        {
+            _bgImage.Source = null;
+            return;
+        }
+
         var path = settings.BackgroundImagePath;
         _blurRadius = settings.BlurRadius;
 
@@ -512,27 +523,6 @@ internal sealed class MainWindow : Window
             AppLog.Log($"ApplyBackgroundImage failed: {ex.Message}");
             _bgImage.Source = null;
             _originalBgImage = null;
-        }
-    }
-
-    internal void SetBackgroundImageOpacity(double opacity)
-    {
-        if (_bgImage is not null) _bgImage.Opacity = opacity;
-    }
-
-    internal void RefreshBackgroundBlur(double radius)
-    {
-        _blurRadius = radius;
-        if (_bgImage is null || _originalBgImage is null) return;
-
-        try
-        {
-            _bgImage.Source = GaussianBlurHelper.BlurIfNeeded(_originalBgImage, (int)radius);
-            _bgImage.Opacity = _draft.BackgroundImageOpacity;
-        }
-        catch (Exception ex)
-        {
-            AppLog.Log($"RefreshBackgroundBlur failed: {ex.Message}");
         }
     }
 

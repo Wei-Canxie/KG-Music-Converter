@@ -23,8 +23,6 @@ internal sealed class AboutControl : ToolPage
 
     private void BuildUI()
     {
-        var tm = ThemeManager.Instance;
-
         _scroll = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -50,11 +48,24 @@ internal sealed class AboutControl : ToolPage
         page.Children.Add(MakeInfoRow("作者", "Evilist"));
         page.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
 
-        page.Children.Add(new TextBlock
+        page.Children.Add(MakeLinkRow("项目详情", "https://github.com/Wei-Canxie/KG-Music-Converter"));
+        page.Children.Add(MakeLinkRow("鸣谢项目", "https://github.com/hu568/Kugo-Music-Converter-Modpacks"));
+
+        _scroll.Content = page;
+        _scroll.ViewChanged += (_, _) => _main.SetScrollOffset(PageTag, _scroll.VerticalOffset);
+        Content = _scroll;
+    }
+
+    /// <summary>一条"标签 + 可点击链接"。</summary>
+    private StackPanel MakeLinkRow(string label, string url)
+    {
+        var tm = ThemeManager.Instance;
+
+        var row = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
+        row.Children.Add(new TextBlock
         {
-            Text = "原始项目",
+            Text = label,
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 12, 0, 0),
         });
 
         var linkPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -67,7 +78,7 @@ internal sealed class AboutControl : ToolPage
 
         var linkText = new TextBlock
         {
-            Text = "github.com/hu568/Kugo-Music-Converter-Modpacks",
+            Text = url.Replace("https://", ""),
             FontSize = 13,
             Foreground = tm.Accent,
             TextWrapping = TextWrapping.Wrap,
@@ -79,7 +90,7 @@ internal sealed class AboutControl : ToolPage
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = "https://github.com/hu568/Kugo-Music-Converter-Modpacks",
+                    FileName = url,
                     UseShellExecute = true,
                 });
             }
@@ -89,11 +100,8 @@ internal sealed class AboutControl : ToolPage
             }
         };
         linkPanel.Children.Add(linkText);
-        page.Children.Add(linkPanel);
-
-        _scroll.Content = page;
-        _scroll.ViewChanged += (_, _) => _main.SetScrollOffset(PageTag, _scroll.VerticalOffset);
-        Content = _scroll;
+        row.Children.Add(linkPanel);
+        return row;
     }
 
     private StackPanel MakeInfoRow(string label, string value)
