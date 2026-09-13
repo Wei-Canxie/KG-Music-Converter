@@ -17,6 +17,7 @@ obj/
 
 # 发行包
 Releases/
+build-out/
 
 # 用户输入文件
 input/

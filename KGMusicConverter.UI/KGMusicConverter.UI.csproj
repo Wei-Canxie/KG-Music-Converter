@@ -19,6 +19,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>KGMusicConverter</AssemblyName>
+    <Version>1.1.1</Version>
+    <Product>KG Music Converter</Product>
+    <FileVersion>1.1.1.0</FileVersion>
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <!-- Point the Appx/PRI build tasks at the installed Visual Studio 2022
          (dotnet CLI doesn't ship these tasks, so PriGen would otherwise fail). -->
