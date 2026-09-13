@@ -17,8 +17,8 @@ echo "==> 清理旧产物"
 rm -rf "$OUT"
 mkdir -p "$OUT/selfcontained" "$OUT/dotnet-only" "$OUT/framework-dependent"
 
-# 旧实例占用 exe 会让构建失败
-taskkill //F //IM KGMusicConverter.exe >/dev/null 2>&1 || true
+# 旧实例占用 exe 会让构建失败（注意：MSYS 下必须写单斜杠 /F，写成 //F 会被当成非法参数而静默失效）
+taskkill /F /IM KGMusicConverter.exe >/dev/null 2>&1 || true
 
 echo "==> [1/3] Self-contained 单文件"
 dotnet publish "$PROJ" -c Release -p:Platform=x64 -r win-x64 \
