@@ -10,13 +10,18 @@
 
 ### 📦 下载与用法
 
-本 Release 提供**三个版本**，按需选择：
+本 Release 提供**两个版本**，按需选择：
 
 | 资产 | 版本类型 | 体积 | 依赖 | 适用场景 |
 |---|---|---|---|---|
-| `KGMusicConverter.exe` | **Self-contained（全自包含）** | ~222 MB | 无（.NET 与 WinAppSDK 全部内置） | 无任何运行时的电脑、便携使用、发给小白用户 |
-| `KGMusicConverter-dotnet-only.zip` | **仅需 .NET（推荐）** | ~56 MB | 仅需 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)；Windows App SDK 已内置 | 已装 .NET 8 的电脑；体积适中、免装 WinAppSDK |
-| `KGMusicConverter-full-framework-dependent.zip` | **完全框架依赖** | ~27 MB | 需 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) + [Windows App SDK Runtime](https://aka.ms/windowsappsdk/2.4/latest/windowappruntimeinstall-x64.exe) | 追求最小下载体积，且两个运行时都已安装 |
+| `KGMusicConverter.exe` | **Self-contained（全自包含）** | ~222 MB | 无（.NET 与 WinAppSDK 全部内置） | 无任何运行时的电脑、便携使用、发给小白用户。**解密引擎需自备**（见下一节） |
+| `KGMusicConverter-full-framework-dependent.zip` | **框架依赖（推荐日常用）** | ~58 MB | 需 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) + [Windows App SDK Runtime](https://aka.ms/windowsappsdk/2.4/latest/windowappruntimeinstall-x64.exe) | 已装两个运行时；**解密引擎已内置**，解压即用 |
+
+> 为什么没有"仅需 .NET（WinAppSDK 内置）"那一版：实测 `WindowsAppSDK 2.4.1-experimental`
+> 在"自带 WinAppSDK 运行时 + 散文件发布"组合下启动必崩
+> （`0xC000027B` stowed exception in `Microsoft.UI.Xaml.dll`，100% 复现），
+> 而单文件版（同一份运行时打进 exe）与框架依赖版都正常。
+> 宁可少一版，也不发一个跑不起来的包。
 
 #### 使用方法
 
@@ -25,25 +30,18 @@
 2. 双击运行（无需管理员权限）
 3. 把要解密的音乐文件拖进窗口左侧拖放区，点「开始转换」
 
-**仅需 .NET 版（zip，推荐）：**
-1. 下载 `KGMusicConverter-dotnet-only.zip` 并解压到任意目录
-2. 如未安装 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)（Windows x64），先安装
-3. 双击解压目录中的 `KGMusicConverter.exe`
+**框架依赖版（zip，推荐）：**
+1. 下载 `KGMusicConverter-full-framework-dependent.zip` 并解压到任意目录
+2. 安装依赖（如未安装）：[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)（Windows x64）+ [Windows App SDK Runtime 2.4](https://aka.ms/windowsappsdk/2.4/latest/windowappruntimeinstall-x64.exe)
+3. 双击解压目录中的 `KGMusicConverter.exe` —— 解密引擎已随之解压，无需另外准备
 4. 把音乐文件拖进左侧拖放区，点「开始转换」
 
-**完全框架依赖版（zip）：**
-1. 下载 `KGMusicConverter-full-framework-dependent.zip` 并解压
-2. 安装依赖（如未安装）：[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) + [Windows App SDK Runtime 2.4](https://aka.ms/windowsappsdk/2.4/latest/windowappruntimeinstall-x64.exe)
-3. 双击解压目录中的 `KGMusicConverter.exe`
-4. 把音乐文件拖进左侧拖放区，点「开始转换」
-
-> ⚠️ **三版区别**：
-> - **Self-contained**：体积最大（~222 MB）但**零依赖**，任何 Win10/11 机器下载即用，最适合分发。
->   注意它是**单个 exe**，不含解密引擎（详见下一节）。
-> - **仅需 .NET**（推荐）：体积适中（~56 MB），Windows App SDK 已内置，**只需装 .NET 8** 即可运行；**已内置解密引擎**。
-> - **完全框架依赖**：体积最小（~27 MB），但**必须同时安装 .NET 8 和 Windows App SDK Runtime**，否则启动报缺运行时；**已内置解密引擎**。
+> ⚠️ **两版区别**：
+> - **Self-contained 单文件**：体积最大（~222 MB）但**零依赖**，任何 Win10/11 机器下载即用，最适合分发；
+>   它是**单个 exe**，里面没有解密引擎 —— 需要把引擎放到 exe 同目录（下一节），或直接下框架依赖版。
+> - **框架依赖 zip**（推荐）：体积小（~58 MB，含引擎），但**必须安装 .NET 8 与 Windows App SDK Runtime**，否则启动报缺运行时。
 >
-> 功能上三个版本完全一致，只是运行时打包方式不同。
+> 功能上两个版本完全一致，只是运行时打包方式不同。
 
 ---
 

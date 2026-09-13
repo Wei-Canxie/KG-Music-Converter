@@ -331,7 +331,9 @@ internal sealed class MainWindow : Window
             PaneDisplayMode = NavigationViewPaneDisplayMode.LeftCompact,
             OpenPaneLength = OpenPaneLength,
             CompactPaneLength = CompactPaneLength,
-            IsPaneOpen = false,
+            // 刻意不在构造期设 IsPaneOpen：模板应用之前设它会抛 0x80070490 (ERROR_NOT_FOUND)，
+            // Release 构建下 100% 启动崩溃（Debug 恰好来得及，所以这个坑只在发布版暴露）。
+            // 收起状态交给下面的 Loaded —— 那时模板已就绪，设置才安全。
         };
         _nav.MenuItems.Add(new NavigationViewItem { Content = "转换", Icon = new SymbolIcon(Symbol.Sync), Tag = "convert" });
         _nav.MenuItems.Add(new NavigationViewItem { Content = "设置", Icon = new SymbolIcon(Symbol.Setting), Tag = "settings" });
@@ -345,6 +347,10 @@ internal sealed class MainWindow : Window
                 try { _nav.SelectedItem = _nav.MenuItems[0]; }
                 catch (Exception ex) { AppLog.Log($"Set default nav item failed: {ex.Message}"); }
             }
+            // 模板已应用，此时设 IsPaneOpen 才是安全的（构造期设置会抛 0x80070490）
+            try { _nav.IsPaneOpen = false; }
+            catch (Exception ex) { AppLog.Log($"Set IsPaneOpen failed: {ex.Message}"); }
+
             SyncSidebarBackground();
             HookPaneAnimation();
         };
@@ -597,7 +603,7 @@ internal sealed class MainWindow : Window
         ApplyBackgroundImage(settings);
     }
 
-    private void ApplyBackgroundImage(Settings settings)
+    private async void ApplyBackgroundImage(Settings settings)
     {
         if (_bgImage is null) return;
 
@@ -620,7 +626,7 @@ internal sealed class MainWindow : Window
 
         try
         {
-            var original = LoadImageToWriteableBitmap(path);
+            var original = await LoadImageToWriteableBitmapAsync(path);
             if (original is null)
             {
                 _bgImage.Source = null;
@@ -640,21 +646,44 @@ internal sealed class MainWindow : Window
         }
     }
 
-    private static Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? LoadImageToWriteableBitmap(string path)
+    /// <summary>
+    /// 解码背景图到 WriteableBitmap —— 显式等待解码完成。
+    ///
+    /// 原实现是"异步解码当同步用"：<c>BitmapImage.SetSource(stream)</c> 之后立刻读
+    /// <c>PixelWidth/PixelHeight</c>，中间没有任何等待 —— 解码没完成时尺寸是 0，
+    /// 于是建出 0×0 的 WriteableBitmap（后面模糊/合成就踩它）；
+    /// 而且 <c>using</c> 的 FileStream 已随方法返回释放，后台解码还在读那个流。
+    ///
+    /// Release 构建下必然命中：启动约 4 秒后 XAML 层 stowed exception 0xC000027B 崩溃
+    /// （Debug 只是时序侥幸没中，所以这个坑只在发布版暴露）。
+    /// 现在用 BitmapDecoder 显式 await，尺寸与像素数据都是确定的。
+    /// </summary>
+    private static async System.Threading.Tasks.Task<Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap?>
+        LoadImageToWriteableBitmapAsync(string path)
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-            bitmap.SetSource(stream.AsRandomAccessStream());
-            var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap((int)bitmap.PixelWidth, (int)bitmap.PixelHeight);
-            using var fileStream = File.OpenRead(path);
-            wb.SetSource(fileStream.AsRandomAccessStream());
+            using var stream = await Windows.Storage.Streams.FileRandomAccessStream
+                .OpenAsync(path, Windows.Storage.FileAccessMode.Read);
+
+            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+            using var software = await decoder.GetSoftwareBitmapAsync();
+
+            int width = software.PixelWidth, height = software.PixelHeight;
+            if (width <= 0 || height <= 0)
+            {
+                AppLog.Log($"背景图尺寸非法 {width}x{height}: {path}");
+                return null;
+            }
+
+            var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(width, height);
+            software.CopyToBuffer(wb.PixelBuffer);
+            wb.Invalidate();
             return wb;
         }
         catch (Exception ex)
         {
-            AppLog.Log($"LoadImageToWriteableBitmap failed: {ex.Message}");
+            AppLog.Log($"LoadImageToWriteableBitmap failed: {ex}");
             return null;
         }
     }

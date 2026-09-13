@@ -2,8 +2,12 @@
 # 构建三个发版变体（对标 OsuCursorPatcherWin v1.1.1 的三个 Built 版）
 #
 #   1. KGMusicConverter.exe                              Self-contained 单文件（零依赖，体积最大）
-#   2. KGMusicConverter-dotnet-only.zip                  仅需 .NET 8（WinAppSDK 已内置，推荐）
-#   3. KGMusicConverter-full-framework-dependent.zip     完全框架依赖（需 .NET 8 + WinAppSDK Runtime，最小）
+#   2. KGMusicConverter-full-framework-dependent.zip     框架依赖（需 .NET 8 + WinAppSDK Runtime，最小）
+#
+# 为什么没有"WinAppSDK 内置的非单文件"那一版：
+#   实测 WindowsAppSDK 2.4.1-experimental 在"自带 WinAppSDK 运行时 + 散文件发布"
+#   这种组合下启动必崩（0xC000027B stowed exception in Microsoft.UI.Xaml.dll），
+#   而单文件版（同一份运行时打进 exe）与框架依赖版都正常。宁可少一版，也不发一个跑不起来的包。
 #
 # 用法：bash scripts/build-release.sh
 set -euo pipefail
@@ -19,8 +23,12 @@ OUT_WIN="$(cygpath -m "$OUT")"
 PROJ="$ROOT_WIN/KGMusicConverter.UI/KGMusicConverter.UI.csproj"
 
 echo "==> 清理旧产物"
-rm -rf "$OUT"
-mkdir -p "$OUT/selfcontained" "$OUT/dotnet-only" "$OUT/framework-dependent"
+# 只清本脚本自己的产物：残留目录（例如已废弃的 dotnet-only）可能被别的进程当工作目录占着，
+# 硬删会 "Device or resource busy" 让整个构建失败 —— 不值得为它挡住发版
+rm -rf "$OUT/selfcontained" "$OUT/framework-dependent"
+rm -f "$OUT"/*.exe "$OUT"/*.zip "$OUT"/publish-*.log
+rmdir "$OUT/dotnet-only" 2>/dev/null || true
+mkdir -p "$OUT/selfcontained" "$OUT/framework-dependent"
 
 # 旧实例占用 exe 会让构建失败（MSYS 下必须写单斜杠 /F，写成 //F 会被判非法参数而静默失效）
 taskkill /F /IM KGMusicConverter.exe >/dev/null 2>&1 || true
@@ -36,26 +44,29 @@ run_publish() {
     tail -20 "$log"
     exit 1
   fi
-  local count
-  count=$(find "$outdir" -type f | wc -l)
-  if [ "$count" -lt 10 ]; then
-    echo "!! 产物异常：只有 $count 个文件，视为失败"
+  # 注意：单文件版（PublishSingleFile）本就只产出 exe(+pdb)，不能按文件数判断
+  local exe="$outdir/KGMusicConverter.exe"
+  if [ ! -f "$exe" ]; then
+    echo "!! 缺少主程序 KGMusicConverter.exe（$label）—— 日志末尾："
+    tail -20 "$log"
+    exit 1
+  fi
+  local size
+  size=$(stat -c %s "$exe")
+  if [ "$size" -lt 102400 ]; then
+    echo "!! 主程序体积异常：$size 字节（$label）"
     exit 1
   fi
   grep -E "error|warning CS" "$log" || true
-  echo "    产物 $count 个文件"
+  echo "    主程序 $size 字节 ・目录共 $(find "$outdir" -type f | wc -l) 个文件"
 }
 
-run_publish "[1/3] Self-contained 单文件" "$OUT_WIN/selfcontained" \
+run_publish "[1/2] Self-contained 单文件" "$OUT_WIN/selfcontained" \
   -c Release -p:Platform=x64 -r win-x64 \
   --self-contained true -p:WindowsAppSDKSelfContained=true \
   -p:PublishSingleFile=true -p:EnableMsixTooling=true
 
-run_publish "[2/3] 仅需 .NET（WinAppSDK 内置）" "$OUT_WIN/dotnet-only" \
-  -c Release -p:Platform=x64 -r win-x64 \
-  --self-contained false -p:WindowsAppSDKSelfContained=true
-
-run_publish "[3/3] 完全框架依赖" "$OUT_WIN/framework-dependent" \
+run_publish "[2/2] 框架依赖（需 .NET 8 + WinAppSDK Runtime）" "$OUT_WIN/framework-dependent" \
   -c Release -p:Platform=x64 -r win-x64 \
   --self-contained false -p:WindowsAppSDKSelfContained=false
 
@@ -63,7 +74,7 @@ run_publish "[3/3] 完全框架依赖" "$OUT_WIN/framework-dependent" \
 ENGINES_DIR="${ENGINES_DIR:-$ROOT/Release_v0.2}"
 if [ -f "$ENGINES_DIR/unlockKuGoWin-64.exe" ]; then
   echo "==> 复制解密引擎（来自 $ENGINES_DIR）"
-  for target in "$OUT/selfcontained" "$OUT/dotnet-only" "$OUT/framework-dependent"; do
+  for target in "$OUT/selfcontained" "$OUT/framework-dependent"; do
     mkdir -p "$target/kgm-vpr-out"
     for f in unlockKuGoWin-64.exe unlockKuGoWin-32.exe kgg-dec.exe kgm.mask; do
       [ -f "$ENGINES_DIR/$f" ] && cp "$ENGINES_DIR/$f" "$target/" || true
@@ -78,7 +89,7 @@ echo "==> 打包 zip（排除 .pdb 与本次构建日志）"
 python - "$OUT_WIN" "$ROOT" <<'PY'
 import os, sys, zipfile
 out_win, root = sys.argv[1], sys.argv[2]
-for name in ("dotnet-only", "framework-dependent"):
+for name in ("framework-dependent",):
     src = os.path.join(out_win, name)
     dst = os.path.join(out_win, f"KGMusicConverter-{name}.zip")
     files = [os.path.join(r, n) for r, _, ns in os.walk(src)
