@@ -147,6 +147,7 @@ internal sealed class MainWindow : Window
 
 
 
+
         // 启动横幅：让日志栏一开始就有上下文，也顺手报出引擎是否就位
         AppendLog("KG Music Converter 启动");
         AppendLog($"  工作区: {Workspace.Root}");

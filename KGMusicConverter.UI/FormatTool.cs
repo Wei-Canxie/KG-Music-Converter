@@ -22,8 +22,7 @@ namespace KGMusicConverter;
 internal sealed class FormatTool
 {
     private const string ConvertLabel = "开始转换";
-    private const string DeleteEncryptedLabel = "删除加密文件";
-    private const string DeleteAudioLabel = "删除音频文件";
+    private const string DeleteLabel = "删除所选文件";
 
     private static readonly (string Label, AudioFormat Format)[] FormatChoices =
     {
@@ -38,15 +37,14 @@ internal sealed class FormatTool
     private readonly ComboBox _formatBox;
     private readonly Button _browseButton;
     private readonly Button _convertButton;
-    private readonly Button _deleteEncryptedButton;
-    private readonly Button _deleteAudioButton;
+    private readonly Button _deleteButton;
     private readonly TextBox _logBox;
     private readonly TextBlock _filterSummary;
     private Dictionary<string, CheckBox> _encryptedChecks = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, CheckBox> _audioChecks = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _running;
-    private string? _pendingDelete;   // "encrypted" / "audio"：二次确认状态
+    private bool _deleteArmed;        // 二次确认状态（第一次点只是"上膛"）
 
     private FormatTool(MainWindow main)
     {
@@ -86,23 +84,15 @@ internal sealed class FormatTool
         };
         _convertButton.Click += OnConvert;
 
-        _deleteEncryptedButton = new Button
+        // 加密与音频共用一个删除按钮：删哪些完全由「删除筛选」决定
+        _deleteButton = new Button
         {
-            Content = DeleteEncryptedLabel,
+            Content = DeleteLabel,
             FontSize = 13,
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(14, 8, 14, 8),
         };
-        _deleteEncryptedButton.Click += async (_, _) => await RequestDeleteAsync("encrypted");
-
-        _deleteAudioButton = new Button
-        {
-            Content = DeleteAudioLabel,
-            FontSize = 13,
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(14, 8, 14, 8),
-        };
-        _deleteAudioButton.Click += async (_, _) => await RequestDeleteAsync("audio");
+        _deleteButton.Click += async (_, _) => await RequestDeleteAsync();
 
         _filterSummary = new TextBlock
         {
@@ -129,6 +119,7 @@ internal sealed class FormatTool
             CloseButtonText = "关闭",
             DefaultButton = ContentDialogButton.None,
         };
+
 
 
         // 默认的对话框最大宽度（约 548）比这里的内容窄，右侧的"浏览…""开始转换"
@@ -219,26 +210,20 @@ internal sealed class FormatTool
         var filterPanel = new StackPanel { Spacing = 4 };
         filterPanel.Children.Add(new TextBlock
         {
-            Text = "删除范围按扩展名筛选（默认全勾）。取消勾选即把该类型排除，只删剩下的。",
+            Text = "删除范围按扩展名筛选：默认只删加密文件；要连音频一起删，把下面的音频扩展名勾上。",
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75,
         });
-        _encryptedChecks = AddFilterGroup(filterPanel, "加密文件", AudioFormats.Encrypted);
-        _audioChecks = AddFilterGroup(filterPanel, "音频文件", AudioFormats.Common);
+        // 删加密文件是本职，默认全勾；删用户自己的音乐，默认全不勾（要删得手动开）
+        _encryptedChecks = AddFilterGroup(filterPanel, "加密文件", AudioFormats.Encrypted, defaultChecked: true);
+        _audioChecks = AddFilterGroup(filterPanel, "音频文件", AudioFormats.Common, defaultChecked: false);
         filterExpander.Content = filterPanel;
         panel.Children.Add(filterExpander);
 
-        // ── 删除行 ──
-        var deleteRow = new Grid { ColumnSpacing = 8 };
-        deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(_deleteEncryptedButton, 0);
-        Grid.SetColumn(_deleteAudioButton, 1);
-        deleteRow.Children.Add(_deleteEncryptedButton);
-        deleteRow.Children.Add(_deleteAudioButton);
-        panel.Children.Add(deleteRow);
+        // ── 删除行（加密 + 音频统一一个按钮）──
+        _deleteButton.HorizontalAlignment = HorizontalAlignment.Left;
+        panel.Children.Add(_deleteButton);
 
         panel.Children.Add(new TextBlock
         {
@@ -366,21 +351,20 @@ internal sealed class FormatTool
         }
     }
 
-    /// <summary>删除请求：第一次点击只是"上膛"，再点一次同样按钮才真的删。</summary>
-    private async Task RequestDeleteAsync(string kind)
+    /// <summary>
+    /// 删除请求：第一次点击只是"上膛"，再点一次同一个按钮才真的删。
+    /// 删哪些类型由「删除筛选」决定 —— 加密默认全勾、音频默认全不勾。
+    /// </summary>
+    private async Task RequestDeleteAsync()
     {
         if (_running) return;
         if (!TryGetDirectory(out var dir)) return;
 
-        var extensions = SelectedExtensions(kind);
-        var label = kind == "encrypted" ? DeleteEncryptedLabel : DeleteAudioLabel;
-
+        var extensions = SelectedExtensions();
         if (extensions.Length == 0)
         {
             ResetPendingDelete();
-            Append(kind == "encrypted"
-                ? "✗ 「删除筛选」里没有勾选任何加密扩展名，没什么可删"
-                : "✗ 「删除筛选」里没有勾选任何音频扩展名，没什么可删");
+            Append("✗ 「删除筛选」里一个扩展名都没勾选，没什么可删");
             return;
         }
 
@@ -405,18 +389,22 @@ internal sealed class FormatTool
         }
 
         // 上膛：改按钮文案并等第二次点击
-        if (_pendingDelete != kind)
+        if (!_deleteArmed)
         {
             ResetPendingDelete();
-            _pendingDelete = kind;
-            var button = kind == "encrypted" ? _deleteEncryptedButton : _deleteAudioButton;
-            button.Content = $"再点一次确认删除 {files.Length} 个";
-            Append($"⚠ 将删除 {files.Length} 个 {string.Join(" ", extensions)} 文件（放入回收站）。再点一次「再点一次确认删除 {files.Length} 个」执行。");
+            _deleteArmed = true;
+            _deleteButton.Content = $"再点一次确认删除 {files.Length} 个";
+            Append($"⚠ 将删除 {files.Length} 个文件（{string.Join(" ", extensions)}），放入回收站。"
+                 + $"再点一次「再点一次确认删除 {files.Length} 个」执行。");
             return;
         }
 
         ResetPendingDelete();
-        Append($"=== 删除 {files.Length} 个 {label} ===");
+
+        int encryptedCount = files.Count(AudioFormats.IsEncrypted);
+        int audioCount = files.Length - encryptedCount;
+
+        Append($"=== 删除 {files.Length} 个文件（加密 {encryptedCount} · 音频 {audioCount}）===");
         _main.AppendLog($"格式整理：删除 {dir} 下的 {files.Length} 个文件（{string.Join(" ", extensions)}）\n");
 
         SetRunning(true);
@@ -457,7 +445,8 @@ internal sealed class FormatTool
     /// 用固定列数的 Grid 而不是横向 StackPanel：勾选框有十几个，
     /// 横向排会顶破对话框右边界（和路径按钮被挤走是同一个坑）。
     /// </summary>
-    private Dictionary<string, CheckBox> AddFilterGroup(Panel parent, string title, string[] extensions)
+    private Dictionary<string, CheckBox> AddFilterGroup(Panel parent, string title, string[] extensions,
+        bool defaultChecked)
     {
         const int columns = 4;
         var map = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
@@ -482,7 +471,7 @@ internal sealed class FormatTool
                 Content = extension,
                 FontSize = 12,
                 MinWidth = 0,
-                IsChecked = true,       // 默认全勾
+                IsChecked = defaultChecked,
             };
             check.Checked += (_, _) => UpdateFilterHeader();
             check.Unchecked += (_, _) => UpdateFilterHeader();
@@ -499,12 +488,12 @@ internal sealed class FormatTool
         return map;
     }
 
-    /// <summary>当前勾选的扩展名（删除动作据此确定范围）。</summary>
-    private string[] SelectedExtensions(string kind)
-    {
-        var map = kind == "encrypted" ? _encryptedChecks : _audioChecks;
-        return map.Where(pair => pair.Value.IsChecked == true).Select(pair => pair.Key).ToArray();
-    }
+    /// <summary>当前勾选的全部扩展名（加密 + 音频合并，删除动作据此确定范围）。</summary>
+    private string[] SelectedExtensions() =>
+        _encryptedChecks.Concat(_audioChecks)
+            .Where(pair => pair.Value.IsChecked == true)
+            .Select(pair => pair.Key)
+            .ToArray();
 
     /// <summary>标题带上当前筛选状态 —— 收起时也能看出删哪些类型。</summary>
     private void UpdateFilterHeader()
@@ -512,9 +501,15 @@ internal sealed class FormatTool
         int encrypted = _encryptedChecks.Count(pair => pair.Value.IsChecked == true);
         int audio = _audioChecks.Count(pair => pair.Value.IsChecked == true);
 
-        _filterSummary.Text = encrypted == _encryptedChecks.Count && audio == _audioChecks.Count
-            ? "删除筛选（全部格式）"
-            : $"删除筛选（加密 {encrypted}/{_encryptedChecks.Count} · 音频 {audio}/{_audioChecks.Count}）";
+        var encryptedTotal = _encryptedChecks.Count;
+        var audioTotal = _audioChecks.Count;
+
+        _filterSummary.Text = (encrypted, audio) switch
+        {
+            var (e, a) when e == encryptedTotal && a == 0 => "删除筛选（仅加密文件）",
+            var (e, a) when e == encryptedTotal && a == audioTotal => "删除筛选（全部格式）",
+            _ => $"删除筛选（加密 {encrypted}/{encryptedTotal} · 音频 {audio}/{audioTotal}）",
+        };
     }
 
     private bool TryGetDirectory(out string dir)
@@ -538,16 +533,14 @@ internal sealed class FormatTool
         _running = running;
         _browseButton.IsEnabled = !running;
         _convertButton.IsEnabled = !running;
-        _deleteEncryptedButton.IsEnabled = !running;
-        _deleteAudioButton.IsEnabled = !running;
+        _deleteButton.IsEnabled = !running;
         _convertButton.Content = running ? "整理中…" : ConvertLabel;
     }
 
     private void ResetPendingDelete()
     {
-        _pendingDelete = null;
-        _deleteEncryptedButton.Content = DeleteEncryptedLabel;
-        _deleteAudioButton.Content = DeleteAudioLabel;
+        _deleteArmed = false;
+        _deleteButton.Content = DeleteLabel;
     }
 
     private void Append(string message)
