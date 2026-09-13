@@ -4,7 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-    <RootNamespace>KugoMusicConverter</RootNamespace>
+    <RootNamespace>KGMusicConverter</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
@@ -18,7 +18,7 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>KugoMusicConverter</AssemblyName>
+    <AssemblyName>KGMusicConverter</AssemblyName>
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <!-- Point the Appx/PRI build tasks at the installed Visual Studio 2022
          (dotnet CLI doesn't ship these tasks, so PriGen would otherwise fail). -->

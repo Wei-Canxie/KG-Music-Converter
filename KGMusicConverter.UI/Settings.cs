@@ -2,19 +2,19 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 public enum ThemeMode { System, Light, Dark }
 public enum BlurMode { None, Mica, Acrylic }
 
 /// <summary>
-/// 设置模型 — 持久化到 ~\AppData\Local\KugoMusicConverter\settings.json
+/// 设置模型 — 持久化到 ~\AppData\Local\KGMusicConverter\settings.json
 /// </summary>
 public class Settings
 {
     private static readonly string Dir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "KugoMusicConverter");
+        "KGMusicConverter");
     private static readonly string PathFile = Path.Combine(Dir, "settings.json");
 
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
@@ -36,6 +36,18 @@ public class Settings
             {
                 var json = File.ReadAllText(PathFile);
                 return JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+            }
+
+            // 兼容旧版本目录名（KugoMusicConverter → KGMusicConverter）
+            var legacy = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "KugoMusicConverter", "settings.json");
+            if (File.Exists(legacy))
+            {
+                var json = File.ReadAllText(legacy);
+                var migrated = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+                migrated.Save();
+                return migrated;
             }
         }
         catch { }

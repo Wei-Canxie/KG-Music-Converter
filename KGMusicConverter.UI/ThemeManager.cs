@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.UI;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 public class ThemeManager : INotifyPropertyChanged
 {

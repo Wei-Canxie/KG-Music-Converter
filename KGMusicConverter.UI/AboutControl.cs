@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 internal sealed class AboutControl : UserControl
 {
@@ -30,7 +30,7 @@ internal sealed class AboutControl : UserControl
         var panel = new StackPanel { Spacing = 12, Padding = new Thickness(24, 16, 24, 16), MaxWidth = 560 };
         panel.Children.Add(Header("关于"));
 
-        panel.Children.Add(MakeInfoRow("程序名称", "Kugo Music Converter"));
+        panel.Children.Add(MakeInfoRow("程序名称", "KG Music Converter"));
         panel.Children.Add(MakeInfoRow("作者", "Evilist"));
         panel.Children.Add(MakeInfoRow("运行时", ".NET 8 / WinUI 3 / Windows App SDK"));
 

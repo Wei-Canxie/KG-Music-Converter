@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 public sealed partial class App : Application
 {

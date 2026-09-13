@@ -9,7 +9,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System.Threading;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 internal sealed class ConvertControl : UserControl
 {

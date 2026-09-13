@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 public enum FileStatus
 {

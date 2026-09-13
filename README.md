@@ -1,4 +1,4 @@
-# Kugo Music Converter Modpacks
+# KG Music Converter Modpacks
 
 > 酷狗音乐加密音频解密/转换工具箱
 
@@ -9,7 +9,7 @@
 ## 快速开始
 
 1. 将需要解密的音乐文件放入 `input/` 文件夹
-2. 双击运行 `Kugo-Music-Converter.exe`
+2. 双击运行 `KG-Music-Converter.exe`
 3. 选择需要的功能（输入数字后回车）
 
 ### 菜单选项说明
@@ -51,8 +51,8 @@ KGG解密.exe
 ## 目录结构
 
 ```
-Kugo-Music-Converter/
-├── Kugo-Music-Converter.exe      # 主程序（一键操作）
+KG-Music-Converter/
+├── KG-Music-Converter.exe      # 主程序（一键操作）
 ├── FLAC转KGM.exe                 # 独立工具：FLAC→KGM 重命名
 ├── KGG解密.exe                   # 独立工具：KGG 解密
 ├── kgg-dec.exe                   # KGG 解密引擎

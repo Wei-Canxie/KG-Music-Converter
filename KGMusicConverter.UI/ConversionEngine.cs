@@ -6,7 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 /// <summary>
 /// 转换引擎 — 支持文件条目状态追踪、源目录/统一输出目录。

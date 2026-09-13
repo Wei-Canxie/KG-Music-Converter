@@ -3,7 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media.Imaging;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 /// <summary>
 /// 软件高斯模糊工具 — 对 WriteableBitmap 像素进行模糊处理

@@ -15,7 +15,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using WinRT.Interop;
 
-namespace KugoMusicConverter;
+namespace KGMusicConverter;
 
 internal sealed class MainWindow : Window
 {
@@ -76,7 +76,7 @@ internal sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "Kugo Music Converter — 酷狗加密音频解密工具箱";
+        Title = "KG Music Converter — 酷狗加密音频解密工具箱";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 750));
 
         var settings = Settings.Load();
@@ -123,7 +123,7 @@ internal sealed class MainWindow : Window
 
         _titleText = new TextBlock
         {
-            Text = "Kugo Music Converter — 酷狗加密音频解密工具箱",
+            Text = "KG Music Converter — 酷狗加密音频解密工具箱",
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             Foreground = GetTitleBarForeground(),
