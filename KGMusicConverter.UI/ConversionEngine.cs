@@ -61,7 +61,6 @@ public sealed class ConversionEngine
     public event Action<bool>? Completed;
 
     private readonly List<FileEntry> _files = new();
-    private readonly Dictionary<string, string> _baseNameToSourceDir = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyList<FileEntry> Files => _files;
 
@@ -109,12 +108,59 @@ public sealed class ConversionEngine
     public void SetFiles(IEnumerable<FileEntry> files)
     {
         _files.Clear();
-        _baseNameToSourceDir.Clear();
-        foreach (var f in files)
+        foreach (var f in files) _files.Add(f);
+        AssignWorkNames();
+    }
+
+    /// <summary>
+    /// 自动识别"不同目录但同名"的文件，给它们在工作区里分配唯一名（其余条目保持原名）。
+    ///
+    /// 为什么不能用子文件夹隔离：解密器只扫描<b>自己的工作目录</b>，输入放进子目录它就看不见了 ——
+    /// 所以隔离只能体现在文件名上。冲突条目改成「名字 (2)」这类唯一名，产物自然也是唯一名，
+    /// 最后搬运时再改回原文件名、投回各自的源目录。
+    /// </summary>
+    private void AssignWorkNames()
+    {
+        foreach (var f in _files) f.WorkBaseName = f.BaseName;
+
+        var conflicts = _files
+            .GroupBy(f => f.BaseName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new
+            {
+                BaseName = g.Key,
+                Sources = g.Select(f => FileOps.ToFullPathOrEmpty(f.SourcePath))
+                           .Where(path => path.Length > 0)
+                           .Distinct(StringComparer.OrdinalIgnoreCase)
+                           .Count(),
+            })
+            .Where(x => x.Sources > 1)
+            .ToList();
+
+        if (conflicts.Count == 0) return;
+
+        int renamed = 0;
+        foreach (var conflict in conflicts)
         {
-            _files.Add(f);
-            _baseNameToSourceDir[f.BaseName] = f.SourceDirectory;
+            // 同一路径被重复加入的项共用一份产物，不参与改名
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int index = 1;
+
+            foreach (var f in _files.Where(f => f.BaseName.Equals(conflict.BaseName, StringComparison.OrdinalIgnoreCase)))
+            {
+                var full = FileOps.ToFullPathOrEmpty(f.SourcePath);
+                if (!seen.Add(full)) continue;
+
+                if (index == 1) { index++; continue; }   // 第一份保持原名
+
+                f.WorkBaseName = $"{f.BaseName} ({index})";
+                index++;
+                renamed++;
+
+                OnLog($"  ⚠ 同名冲突：{f.BaseName}（{f.SourceDirectory}）→ 工作区改名 {f.WorkBaseName}{f.Extension}");
+            }
         }
+
+        OnLog($"⚠ 检测到同名文件来自不同目录，已为 {renamed} 个文件分配独立工作名；成品仍各自回到原目录");
     }
 
     public async Task RunAsync(ConversionOptions options, CancellationToken ct)
@@ -182,7 +228,7 @@ public sealed class ConversionEngine
             f.Status = FileStatus.Processing;
             OnFileChanged(f);
 
-            var dst = Path.Combine(WorkingDir, f.FileName);
+            var dst = Path.Combine(WorkingDir, f.WorkFileName);
             try
             {
                 if (File.Exists(dst))
@@ -194,7 +240,7 @@ public sealed class ConversionEngine
                 {
                     File.Copy(f.SourcePath, dst);
                 }
-                OnLog($"  → 复制: {f.FileName}");
+                OnLog($"  → 复制: {f.WorkFileName}");
             }
             catch (Exception e)
             {
@@ -216,8 +262,8 @@ public sealed class ConversionEngine
 
         foreach (var f in flacFiles)
         {
-            var target = f.BaseName + ".kgm";
-            var src = Path.Combine(WorkingDir, f.FileName);
+            var target = f.WorkBaseName + ".kgm";
+            var src = Path.Combine(WorkingDir, f.WorkFileName);
             var dst = Path.Combine(WorkingDir, target);
             OnLog($"处理: {f.FileName}");
             if (File.Exists(dst))
@@ -321,7 +367,7 @@ public sealed class ConversionEngine
         foreach (var f in kggFiles)
         {
             OnLog($"处理: {f.FileName}");
-            var src = Path.Combine(WorkingDir, f.FileName);
+            var src = Path.Combine(WorkingDir, f.WorkFileName);
             try
             {
                 using var proc = new Process
@@ -340,9 +386,9 @@ public sealed class ConversionEngine
                 proc.Start();
                 proc.WaitForExit(120_000);
 
-                var tempOgg = Path.Combine(WorkingDir, $"{f.BaseName}_kgg-dec.ogg");
-                var tempOggOut = Path.Combine(OutputDir, $"{f.BaseName}_kgg-dec.ogg");
-                var outputOgg = Path.Combine(OutputDir, $"{f.BaseName}.ogg");
+                var tempOgg = Path.Combine(WorkingDir, $"{f.WorkBaseName}_kgg-dec.ogg");
+                var tempOggOut = Path.Combine(OutputDir, $"{f.WorkBaseName}_kgg-dec.ogg");
+                var outputOgg = Path.Combine(OutputDir, $"{f.WorkBaseName}.ogg");
 
                 if (File.Exists(tempOggOut))
                     tempOgg = tempOggOut;
@@ -475,7 +521,7 @@ public sealed class ConversionEngine
         {
             if (f.Status == FileStatus.Failed || f.Status == FileStatus.NeedsManualKGG) continue;
 
-            if (movedByBase.TryGetValue(f.BaseName, out var alreadyMoved))
+            if (movedByBase.TryGetValue(f.WorkBaseName, out var alreadyMoved))
             {
                 f.OutputPath = alreadyMoved;
                 f.Status = FileStatus.Completed;
@@ -486,15 +532,7 @@ public sealed class ConversionEngine
 
             // 找到对应的输出文件
             var match = outputFiles.FirstOrDefault(of =>
-                Path.GetFileNameWithoutExtension(of).Equals(f.BaseName, StringComparison.OrdinalIgnoreCase));
-
-            if (match == null)
-            {
-                // 查找可能的 MP3 输出
-                match = outputFiles.FirstOrDefault(of =>
-                    Path.GetFileNameWithoutExtension(of).Equals(f.BaseName, StringComparison.OrdinalIgnoreCase) &&
-                    Path.GetExtension(of).Equals(".mp3", StringComparison.OrdinalIgnoreCase));
-            }
+                Path.GetFileNameWithoutExtension(of).Equals(f.WorkBaseName, StringComparison.OrdinalIgnoreCase));
 
             if (match == null)
             {
@@ -517,29 +555,34 @@ public sealed class ConversionEngine
             // 只搬第一个会把 mp3 落在工作区里成为孤儿文件
             var produced = outputFiles
                 .Where(of => Path.GetFileNameWithoutExtension(of)
-                    .Equals(f.BaseName, StringComparison.OrdinalIgnoreCase))
+                    .Equals(f.WorkBaseName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             try
             {
                 foreach (var producedFile in produced)
                 {
-                    var target = Path.Combine(targetDir, Path.GetFileName(producedFile));
+                    // 投递时改回用户的原文件名：工作名只是隔离手段，不该让用户看到「名字 (2)」
+                    var deliveredName = f.BaseName + Path.GetExtension(producedFile);
+                    var target = Path.Combine(targetDir, deliveredName);
                     if (File.Exists(target)) File.Delete(target);
                     File.Move(producedFile, target);
 
-                    // OutputPath 指向用户最想要的那个：转码产物优先于解密出来的原始文件
-                    if (f.OutputPath is null || OutputRank(target) < OutputRank(f.OutputPath))
+                    // OutputPath 指向用户最想要的那个：转码产物优先于解密出来的原始文件。
+                    // 同级时用后搬到的（KGG 那条路径先把产物记在产物目录，搬完后必须改成成品路径）。
+                    if (f.OutputPath is null || OutputRank(target) <= OutputRank(f.OutputPath))
                         f.OutputPath = target;
 
-                    OnLog($"  → {Path.GetFileName(target)} → {targetDir}");
+                    OnLog(f.WorkBaseName.Equals(f.BaseName, StringComparison.OrdinalIgnoreCase)
+                        ? $"  → {deliveredName} → {targetDir}"
+                        : $"  → {deliveredName}（隔离用名 {Path.GetFileName(producedFile)}） → {targetDir}");
                 }
 
                 f.Status = FileStatus.Completed;
                 OnFileChanged(f);
 
                 if (!string.IsNullOrEmpty(f.OutputPath))
-                    movedByBase[f.BaseName] = f.OutputPath;
+                    movedByBase[f.WorkBaseName] = f.OutputPath;
             }
             catch (Exception e)
             {
