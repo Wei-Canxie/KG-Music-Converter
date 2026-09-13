@@ -17,19 +17,25 @@ internal enum LogLevel
 /// 日志行格式，对齐 V2rayN / Xray 的样式：
 ///
 /// <code>
-/// 2026/08/30 01:43:11.815593 [Info] [2832169709] proxy/http: request to Method [CONNECT] ...
+/// 2026/08/30 01:43:11.815593 [Info] [19404:2832169709] proxy/http: request to Method [CONNECT] ...
 /// </code>
 ///
-/// 四段：<c>yyyy/MM/dd HH:mm:ss.ffffff</c>（6 位小数）→ <c>[级别]</c> → <c>[会话号]</c> → 正文。
+/// 四段：<c>yyyy/MM/dd HH:mm:ss.ffffff</c>（6 位小数）→ <c>[级别]</c> → <c>[PID:会话号]</c> → 正文。
 ///
 /// 方括号里的数字在 V2rayN 日志里是<b>会话/连接号</b> —— 同一条连接的多行共享同一个号，
 /// 便于把交织在一起的多路输出拆回各自的会话。这里用同样语义：
 /// 一次转换 = 一个会话号，转换开始时换新号，于是"哪些行属于同一次转换"一眼可辨。
+///
+/// 会话号前面再缀上本进程 PID：会话号只区分"同一次转换"，区分不了进程 ——
+/// 同时开多个实例（例如新旧版本对比）时，靠 PID 才看得出某一行是谁写的。
 /// </summary>
 internal static class LogFormat
 {
     private static readonly object Gate = new();
     private static uint _sessionId = NewSessionId();
+
+    /// <summary>本进程 PID（进程内恒定，取一次即可）。多实例并存时用来区分某一行是哪个进程写的。</summary>
+    private static readonly int ProcessId = Environment.ProcessId;
 
     /// <summary>当前会话号（同一次转换的所有日志共享）。</summary>
     internal static uint SessionId
@@ -47,7 +53,7 @@ internal static class LogFormat
 
     /// <summary>把一行正文渲染成完整的 V2rayN 风格日志行。</summary>
     internal static string Line(string message, LogLevel level) =>
-        $"{DateTime.Now:yyyy/MM/dd HH:mm:ss.ffffff} [{level}] [{SessionId}] {message}";
+        $"{DateTime.Now:yyyy/MM/dd HH:mm:ss.ffffff} [{level}] [{ProcessId}:{SessionId}] {message}";
 
     /// <summary>
     /// 从正文猜级别：引擎的日志用 ✗ / ⚠ / ✓ 标记结果，
