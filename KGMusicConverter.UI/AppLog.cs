@@ -69,7 +69,15 @@ internal static class LogFormat
         return LogLevel.Info;
     }
 
-    /// <summary>把可能含换行的消息拆成若干行（空行丢弃）。</summary>
+    /// <summary>
+    /// 条目之间的分隔：一个空行。
+    ///
+    /// 界面日志栏（运行时追加 + 切页后重建）和日志文件都<b>必须走这一个常量</b> ——
+    /// 之前两边各写各的，结果文件里空行正常、重建界面时却用 <c>string.Join("", …)</c>
+    /// 把裸行（行里不带换行）直接粘成一坨。分隔符只留一处定义就不会再漂开。
+    /// </summary>
+    internal static string EntrySeparator => Environment.NewLine + Environment.NewLine;
+
     internal static IEnumerable<string> SplitLines(string message)
     {
         foreach (var raw in message.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
@@ -113,7 +121,7 @@ internal static class AppLog
                 //（"=== 阶段N ===" 这类状态行也因而被空行隔开）
                 File.AppendAllText(
                     LogPath,
-                    formattedLine + Environment.NewLine + Environment.NewLine,
+                    formattedLine + LogFormat.EntrySeparator,
                     NoBomUtf8);
             }
         }

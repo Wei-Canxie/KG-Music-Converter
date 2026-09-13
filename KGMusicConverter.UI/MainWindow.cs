@@ -953,9 +953,23 @@ internal sealed class MainWindow : Window
 
     internal ObservableCollection<FileEntry> Files => _files;
     internal bool IsRunning => _isRunning;
+    /// <summary>
+    /// 日志栏的完整文本（切页重建时用来还原内容）。
+    ///
+    /// <c>_logLines</c> 里存的是不带换行的裸行，运行时追加走 <see cref="AppendLog"/> 的
+    /// 拼接，这里必须用同一个 <see cref="LogFormat.EntrySeparator"/>，
+    /// 否则切页回来所有行会粘成一坨（连普通换行都没有）。
+    /// </summary>
     internal string LogText
     {
-        get { lock (_logLock) return string.Join("", _logLines); }
+        get
+        {
+            lock (_logLock)
+            {
+                if (_logLines.Count == 0) return string.Empty;
+                return string.Join(LogFormat.EntrySeparator, _logLines) + LogFormat.EntrySeparator;
+            }
+        }
     }
     internal string? ProgressLabelText { get; private set; }
     internal double ProgressValue { get; private set; }
@@ -984,8 +998,8 @@ internal sealed class MainWindow : Window
         if (formattedLines.Count == 0) return;
 
         // 每条目后留一个空行：阶段标题、进度行各自成段，扫读时不再糊成一片
-        var text = string.Join(Environment.NewLine + Environment.NewLine, formattedLines)
-                   + Environment.NewLine + Environment.NewLine;
+        //（分隔符与 LogText 重建路径共用，见 LogFormat.EntrySeparator）
+        var text = string.Join(LogFormat.EntrySeparator, formattedLines) + LogFormat.EntrySeparator;
 
         RunOnUi(() =>
         {
