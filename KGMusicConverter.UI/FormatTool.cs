@@ -41,6 +41,9 @@ internal sealed class FormatTool
     private readonly Button _deleteEncryptedButton;
     private readonly Button _deleteAudioButton;
     private readonly TextBox _logBox;
+    private readonly TextBlock _filterSummary;
+    private Dictionary<string, CheckBox> _encryptedChecks = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, CheckBox> _audioChecks = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _running;
     private string? _pendingDelete;   // "encrypted" / "audio"：二次确认状态
@@ -101,6 +104,12 @@ internal sealed class FormatTool
         };
         _deleteAudioButton.Click += async (_, _) => await RequestDeleteAsync("audio");
 
+        _filterSummary = new TextBlock
+        {
+            Text = "删除筛选",
+            TextWrapping = TextWrapping.Wrap,
+        };
+
         _logBox = new TextBox
         {
             IsReadOnly = true,
@@ -120,6 +129,7 @@ internal sealed class FormatTool
             CloseButtonText = "关闭",
             DefaultButton = ContentDialogButton.None,
         };
+
 
         // 默认的对话框最大宽度（约 548）比这里的内容窄，右侧的"浏览…""开始转换"
         // 会被裁到看不见、点不到 —— 显式放宽
@@ -197,6 +207,28 @@ internal sealed class FormatTool
         convertRow.Children.Add(_convertButton);
         panel.Children.Add(convertRow);
 
+        // ── 删除筛选：默认全勾，取消勾选即把这些扩展名排除在删除范围外 ──
+        var filterExpander = new Expander
+        {
+            Header = _filterSummary,
+            IsExpanded = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var filterPanel = new StackPanel { Spacing = 4 };
+        filterPanel.Children.Add(new TextBlock
+        {
+            Text = "删除范围按扩展名筛选（默认全勾）。取消勾选即把该类型排除，只删剩下的。",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.75,
+        });
+        _encryptedChecks = AddFilterGroup(filterPanel, "加密文件", AudioFormats.Encrypted);
+        _audioChecks = AddFilterGroup(filterPanel, "音频文件", AudioFormats.Common);
+        filterExpander.Content = filterPanel;
+        panel.Children.Add(filterExpander);
+
         // ── 删除行 ──
         var deleteRow = new Grid { ColumnSpacing = 8 };
         deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -210,8 +242,7 @@ internal sealed class FormatTool
 
         panel.Children.Add(new TextBlock
         {
-            Text = $"加密文件 = {string.Join(" ", AudioFormats.Encrypted)}；"
-                 + $"音频文件 = {string.Join(" ", AudioFormats.Common)}。删除需点两次确认，且只进回收站。",
+            Text = "删除范围由上面「删除筛选」决定；需点两次确认，且只进回收站。",
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75,
@@ -219,6 +250,7 @@ internal sealed class FormatTool
 
         _logBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         panel.Children.Add(_logBox);
+        UpdateFilterHeader();
         return panel;
     }
 
@@ -340,8 +372,17 @@ internal sealed class FormatTool
         if (_running) return;
         if (!TryGetDirectory(out var dir)) return;
 
-        var extensions = kind == "encrypted" ? AudioFormats.Encrypted : AudioFormats.Common;
+        var extensions = SelectedExtensions(kind);
         var label = kind == "encrypted" ? DeleteEncryptedLabel : DeleteAudioLabel;
+
+        if (extensions.Length == 0)
+        {
+            ResetPendingDelete();
+            Append(kind == "encrypted"
+                ? "✗ 「删除筛选」里没有勾选任何加密扩展名，没什么可删"
+                : "✗ 「删除筛选」里没有勾选任何音频扩展名，没什么可删");
+            return;
+        }
 
         string[] files;
         try
@@ -409,6 +450,72 @@ internal sealed class FormatTool
     }
 
     // ── 辅助 ──
+
+    /// <summary>
+    /// 建一组扩展名勾选框（默认全勾），返回"扩展名 → 勾选框"的映射。
+    ///
+    /// 用固定列数的 Grid 而不是横向 StackPanel：勾选框有十几个，
+    /// 横向排会顶破对话框右边界（和路径按钮被挤走是同一个坑）。
+    /// </summary>
+    private Dictionary<string, CheckBox> AddFilterGroup(Panel parent, string title, string[] extensions)
+    {
+        const int columns = 4;
+        var map = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
+
+        parent.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 12,
+            Opacity = 0.85,
+            Margin = new Thickness(0, 6, 0, 0),
+        });
+
+        var grid = new Grid { ColumnSpacing = 6, RowSpacing = 2 };
+        for (int c = 0; c < columns; c++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        int index = 0;
+        foreach (var extension in extensions)
+        {
+            var check = new CheckBox
+            {
+                Content = extension,
+                FontSize = 12,
+                MinWidth = 0,
+                IsChecked = true,       // 默认全勾
+            };
+            check.Checked += (_, _) => UpdateFilterHeader();
+            check.Unchecked += (_, _) => UpdateFilterHeader();
+            map[extension] = check;
+
+            if (index % columns == 0) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(check, index / columns);
+            Grid.SetColumn(check, index % columns);
+            grid.Children.Add(check);
+            index++;
+        }
+
+        parent.Children.Add(grid);
+        return map;
+    }
+
+    /// <summary>当前勾选的扩展名（删除动作据此确定范围）。</summary>
+    private string[] SelectedExtensions(string kind)
+    {
+        var map = kind == "encrypted" ? _encryptedChecks : _audioChecks;
+        return map.Where(pair => pair.Value.IsChecked == true).Select(pair => pair.Key).ToArray();
+    }
+
+    /// <summary>标题带上当前筛选状态 —— 收起时也能看出删哪些类型。</summary>
+    private void UpdateFilterHeader()
+    {
+        int encrypted = _encryptedChecks.Count(pair => pair.Value.IsChecked == true);
+        int audio = _audioChecks.Count(pair => pair.Value.IsChecked == true);
+
+        _filterSummary.Text = encrypted == _encryptedChecks.Count && audio == _audioChecks.Count
+            ? "删除筛选（全部格式）"
+            : $"删除筛选（加密 {encrypted}/{_encryptedChecks.Count} · 音频 {audio}/{_audioChecks.Count}）";
+    }
 
     private bool TryGetDirectory(out string dir)
     {
