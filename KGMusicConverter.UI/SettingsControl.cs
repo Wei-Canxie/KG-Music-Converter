@@ -159,13 +159,23 @@ internal sealed class SettingsControl : ToolPage
         // ── 背景图片 ──
         page.Children.Add(Section("背景图片"));
 
+        // 行用 Grid 星列：长文件名被挤成省略号，而不是把后面的按钮顶出可视区
+        //（横向 StackPanel 会以无限宽量测子元素，TextTrimming 不会生效）
+        var imageRow = new Grid { ColumnSpacing = 8 };
+        imageRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        imageRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        imageRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
         var pathLabel = new TextBlock
         {
             Text = DescribeImage(Draft.BackgroundImagePath),
             VerticalAlignment = VerticalAlignment.Center,
-            MinWidth = 200,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap,
         };
+        ToolTipService.SetToolTip(pathLabel, Draft.BackgroundImagePath ?? "(无)");
+        Grid.SetColumn(pathLabel, 0);
+        imageRow.Children.Add(pathLabel);
 
         var chooseButton = new Button { Content = "选择图片…" };
         chooseButton.Click += async (_, _) =>
@@ -175,22 +185,24 @@ internal sealed class SettingsControl : ToolPage
             {
                 Draft.BackgroundImagePath = path;
                 pathLabel.Text = DescribeImage(path);
+                ToolTipService.SetToolTip(pathLabel, path);
                 _main.MarkDirty();
             }
         };
+        Grid.SetColumn(chooseButton, 1);
+        imageRow.Children.Add(chooseButton);
 
         var clearButton = new Button { Content = "清除" };
         clearButton.Click += (_, _) =>
         {
             Draft.BackgroundImagePath = null;
             pathLabel.Text = DescribeImage(null);
+            ToolTipService.SetToolTip(pathLabel, "(无)");
             _main.MarkDirty();
         };
-
-        var imageRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        imageRow.Children.Add(pathLabel);
-        imageRow.Children.Add(chooseButton);
+        Grid.SetColumn(clearButton, 2);
         imageRow.Children.Add(clearButton);
+
         page.Children.Add(imageRow);
 
         page.Children.Add(BuildSliderWithTextBox(

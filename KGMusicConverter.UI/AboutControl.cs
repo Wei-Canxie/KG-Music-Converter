@@ -68,13 +68,20 @@ internal sealed class AboutControl : ToolPage
             FontWeight = FontWeights.SemiBold,
         });
 
-        var linkPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        linkPanel.Children.Add(new TextBlock
+        // 图标 + 链接：用星列约束宽度，长 URL 才会换行而不是溢出
+        //（横向 StackPanel 以无限宽量测子元素，TextWrapping 不会生效）
+        var linkPanel = new Grid { ColumnSpacing = 8 };
+        linkPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        linkPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var icon = new TextBlock
         {
             Text = "🔗",
             FontSize = 14,
             VerticalAlignment = VerticalAlignment.Center,
-        });
+        };
+        Grid.SetColumn(icon, 0);
+        linkPanel.Children.Add(icon);
 
         var linkText = new TextBlock
         {
@@ -99,7 +106,9 @@ internal sealed class AboutControl : ToolPage
                 AppLog.Log($"Open link failed: {ex.Message}");
             }
         };
+        Grid.SetColumn(linkText, 1);
         linkPanel.Children.Add(linkText);
+
         row.Children.Add(linkPanel);
         return row;
     }
