@@ -74,6 +74,12 @@ internal static class Workspace
     /// </summary>
     internal static string SessionFlag { get; } = Path.Combine(AppDir, "session.lock");
 
+    /// <summary>
+    /// 记录"已播种引擎的程序版本"。
+    /// 刻意放在 AppDir 而不是 workspace 里 —— 工作区会被清理，清单放里面等于每次启动都要重播一遍。
+    /// </summary>
+    private static string EngineVersionFile { get; } = Path.Combine(AppDir, "engines.version");
+
     internal static void EnsureCreated()
     {
         try
@@ -100,15 +106,29 @@ internal static class Workspace
         try
         {
             var appDir = AppContext.BaseDirectory;
+            var appVersion = typeof(Workspace).Assembly.GetName().Version?.ToString() ?? "unknown";
 
+            // 换了程序版本就整体重播一次 —— 只比大小的话，
+            // 新版本换了引擎而体积恰好相同时不会被刷新
+            bool newVersion = ReadSeededVersion() != appVersion;
+
+            int seeded = 0;
             foreach (var name in EngineFiles)
             {
-                CopyIfMissing(Path.Combine(appDir, name), Path.Combine(Root, name));
+                if (CopyEngine(Path.Combine(appDir, name), Path.Combine(Root, name), newVersion)) seeded++;
             }
 
-            CopyIfMissing(
-                Path.Combine(appDir, "kgm-vpr-out", FfmpegName),
-                Path.Combine(OutputDir, FfmpegName));
+            if (CopyEngine(Path.Combine(appDir, "kgm-vpr-out", FfmpegName),
+                           Path.Combine(OutputDir, FfmpegName), newVersion)) seeded++;
+
+            if (seeded > 0)
+            {
+                AppLog.Log(newVersion
+                    ? $"新版本 {appVersion}：已重新播种解密引擎 {seeded} 个"
+                    : $"解密引擎缺失，已补播种 {seeded} 个");
+            }
+
+            WriteSeededVersion(appVersion);
         }
         catch (Exception ex)
         {
@@ -116,23 +136,51 @@ internal static class Workspace
         }
     }
 
-    private static void CopyIfMissing(string source, string destination)
+    /// <summary>按需把引擎复制进工作区；返回是否真的复制了。</summary>
+    private static bool CopyEngine(string source, string destination, bool force)
     {
         try
         {
-            if (!File.Exists(source)) return;
-            if (File.Exists(destination))
+            if (!File.Exists(source)) return false;   // 用户没放引擎，跳过（转换时会明确报缺哪个）
+
+            if (!force && File.Exists(destination) &&
+                new FileInfo(source).Length == new FileInfo(destination).Length)
             {
-                // 同大小视为已就绪，避免每次启动重复拷贝几十 MB
-                if (new FileInfo(source).Length == new FileInfo(destination).Length) return;
+                return false;   // 已就绪，别每次启动都重拷几十 MB
             }
 
             File.Copy(source, destination, overwrite: true);
             AppLog.Log($"Engine seeded: {Path.GetFileName(destination)}");
+            return true;
         }
         catch (Exception ex)
         {
             AppLog.Log($"Seed {Path.GetFileName(destination)} failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static string ReadSeededVersion()
+    {
+        try
+        {
+            return File.Exists(EngineVersionFile) ? File.ReadAllText(EngineVersionFile).Trim() : "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static void WriteSeededVersion(string version)
+    {
+        try
+        {
+            File.WriteAllText(EngineVersionFile, version);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"Write engine version failed: {ex.Message}");
         }
     }
 

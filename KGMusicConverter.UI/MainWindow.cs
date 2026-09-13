@@ -983,7 +983,9 @@ internal sealed class MainWindow : Window
 
         if (formattedLines.Count == 0) return;
 
-        var text = string.Join(Environment.NewLine, formattedLines) + Environment.NewLine;
+        // 每条目后留一个空行：阶段标题、进度行各自成段，扫读时不再糊成一片
+        var text = string.Join(Environment.NewLine + Environment.NewLine, formattedLines)
+                   + Environment.NewLine + Environment.NewLine;
 
         RunOnUi(() =>
         {

@@ -109,7 +109,12 @@ internal static class AppLog
         {
             lock (Gate)
             {
-                File.AppendAllText(LogPath, formattedLine + Environment.NewLine, NoBomUtf8);
+                // 条目之间空一行：日志栏与文件都更容易读
+                //（"=== 阶段N ===" 这类状态行也因而被空行隔开）
+                File.AppendAllText(
+                    LogPath,
+                    formattedLine + Environment.NewLine + Environment.NewLine,
+                    NoBomUtf8);
             }
         }
         catch
