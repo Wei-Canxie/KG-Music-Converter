@@ -130,6 +130,59 @@ internal sealed class ConvertControl : ToolPage
         };
         contentPanel.Children.Add(dropZone);
 
+        // 收件箱（热文件夹）：丢进去就自动入队
+        var inboxRow = new Grid { ColumnSpacing = 8 };
+        inboxRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        inboxRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        inboxRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        inboxRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var inboxHint = new TextBlock
+        {
+            Text = "📥 热文件夹：丢进收件箱会自动入队；收件箱来的文件成品放「成品目录」",
+            FontSize = 12,
+            Foreground = tm.SubText,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(inboxHint, 0);
+        inboxRow.Children.Add(inboxHint);
+
+        var inboxButton = new Button
+        {
+            Content = "打开收件箱",
+            FontSize = 12,
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 6, 12, 6),
+        };
+        inboxButton.Click += (_, _) => _main.OpenInbox();
+        Grid.SetColumn(inboxButton, 1);
+        inboxRow.Children.Add(inboxButton);
+
+        var workspaceButton = new Button
+        {
+            Content = "打开工作区",
+            FontSize = 12,
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 6, 12, 6),
+        };
+        workspaceButton.Click += (_, _) => _main.OpenWorkspace();
+        Grid.SetColumn(workspaceButton, 2);
+        inboxRow.Children.Add(workspaceButton);
+
+        var outputButton = new Button
+        {
+            Content = "打开成品目录",
+            FontSize = 12,
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 6, 12, 6),
+        };
+        outputButton.Click += (_, _) => _main.OpenOutputFolder();
+        Grid.SetColumn(outputButton, 3);
+        inboxRow.Children.Add(outputButton);
+
+        contentPanel.Children.Add(inboxRow);
+
         _kggWarning = new TextBlock
         {
             Text = "",

@@ -36,6 +36,21 @@ dotnet publish "$PROJ" -c Release -p:Platform=x64 -r win-x64 \
   --self-contained false -p:WindowsAppSDKSelfContained=false \
   -o "$OUT/framework-dependent" 2>&1 | grep -E "error|warning CS" || true
 
+# ── 把解密引擎放进每个发布产物（程序首次运行会自动播种到工作区）──
+ENGINES_DIR="${ENGINES_DIR:-$ROOT/Release_v0.2}"
+if [ -f "$ENGINES_DIR/unlockKuGoWin-64.exe" ]; then
+  echo "==> 复制解密引擎（来自 $ENGINES_DIR）"
+  for target in "$OUT/selfcontained" "$OUT/dotnet-only" "$OUT/framework-dependent"; do
+    mkdir -p "$target/kgm-vpr-out"
+    for f in unlockKuGoWin-64.exe unlockKuGoWin-32.exe kgg-dec.exe kgm.mask; do
+      [ -f "$ENGINES_DIR/$f" ] && cp "$ENGINES_DIR/$f" "$target/" || true
+    done
+    [ -f "$ENGINES_DIR/kgm-vpr-out/ffmpeg.exe" ] && cp "$ENGINES_DIR/kgm-vpr-out/ffmpeg.exe" "$target/kgm-vpr-out/" || true
+  done
+else
+  echo "!! 未找到引擎目录 $ENGINES_DIR —— 产物将不含解密引擎（用户需自行放置）"
+fi
+
 echo "==> 打包 zip（排除 .pdb）"
 python - "$OUT" <<'PY'
 import os, sys, zipfile

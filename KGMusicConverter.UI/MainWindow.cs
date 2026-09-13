@@ -66,6 +66,7 @@ internal sealed class MainWindow : Window
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<FileEntry> _files = new();
     private readonly List<string> _logLines = new();
+    private readonly object _logLock = new();
     private readonly Dictionary<string, double> _scrollCache = new();
     private bool _isRunning;
 
@@ -79,6 +80,7 @@ internal sealed class MainWindow : Window
     private TextBlock? _applyBarText;
     private ToolPage? _currentPage;
     private string _currentTag = "convert";
+    private InboxWatcher? _inboxWatcher;
     private FrameworkElement? _clippedPane;
     private bool _paneAnimationHooked;
 
@@ -118,14 +120,119 @@ internal sealed class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(null);
 
+        // 应用专属工作区：引擎在这里，中间产物也在这里（音乐文件夹不再被污染）
+        Workspace.EnsureCreated();
+        Workspace.SeedEngines();
+
+        // 上次若是被强杀（进程已不在但会话标记还在），遗留的临时文件直接清掉，不打扰用户
+        int recoveredTempFiles = 0;
+        if (Workspace.WasPreviousSessionKilled())
+        {
+            var (removed, _) = Workspace.CleanTempFiles();
+            recoveredTempFiles = removed;
+            AppLog.Log($"上次会话未正常结束，已清理遗留临时文件 {removed} 个");
+        }
+        Workspace.MarkSessionStarted();
+
         BuildUI();
         ApplyAppearance(_live, rebuildPage: false);
 
+        StartInboxWatcher();
+
+        // 启动横幅：让日志栏一开始就有上下文，也顺手报出引擎是否就位
+        AppendLog("KG Music Converter 启动");
+        AppendLog($"  工作区: {Workspace.Root}");
+        AppendLog($"  收件箱: {Workspace.Inbox}");
+        AppendLog($"  成品目录: {Workspace.Output}");
+
+        if (recoveredTempFiles > 0)
+        {
+            AppendLog($"  ℹ 上次未正常退出，已自动清理遗留临时文件 {recoveredTempFiles} 个");
+        }
+
+        var missingEngines = Workspace.MissingEngines();
+        if (missingEngines.Count == 0)
+        {
+            AppendLog("  解密引擎: 就绪");
+        }
+        else
+        {
+            AppendLog($"  ⚠ 缺少解密引擎: {string.Join("、", missingEngines)}（请放到程序目录，程序会自动复制进工作区）");
+        }
+
         AppWindow.Closing += (_, _) =>
         {
-            // 一次性工具：关窗即退出（不做托盘驻留）
-            AppLog.Log("Window closing, exiting");
+            // 一次性工具：关窗即退出（不做托盘驻留），退出前把临时文件清干净
+            try
+            {
+                _cts?.Cancel();              // 正在转换时先停手，别跟清理抢文件
+                _inboxWatcher?.Dispose();
+
+                var (removed, failed) = Workspace.CleanTempFiles();
+                AppLog.Log(failed > 0
+                    ? $"窗口关闭：清理临时文件 {removed} 个（{failed} 个被占用，留给下次启动）"
+                    : $"窗口关闭：清理临时文件 {removed} 个");
+
+                // 全清干净才撤掉会话标记；否则留着让下次启动兜底清理
+                if (failed == 0) Workspace.MarkSessionEnded();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log($"关机清理失败: {ex.Message}");
+            }
         };
+    }
+
+    /// <summary>收件箱热文件夹：丢进去的文件自动入队。</summary>
+    private void StartInboxWatcher()
+    {
+        try
+        {
+            _inboxWatcher = new InboxWatcher(paths =>
+            {
+                if (paths.Count == 0) return;
+                AddFiles(paths);
+                AppendLog($"📥 收件箱新增 {paths.Count} 个文件，已加入队列\n");
+            });
+
+            // 程序没开着的时候丢进去的文件，启动时补捞一次
+            var existing = Workspace.ScanInbox();
+            if (existing.Count > 0)
+            {
+                AddFiles(existing);
+                AppendLog($"📥 收件箱已有 {existing.Count} 个文件，已加入队列\n");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"StartInboxWatcher failed: {ex}");
+        }
+    }
+
+    /// <summary>在资源管理器里打开收件箱。</summary>
+    internal void OpenInbox() => OpenFolder(Workspace.Inbox);
+
+    /// <summary>在资源管理器里打开工作区。</summary>
+    internal void OpenWorkspace() => OpenFolder(Workspace.Root);
+
+    /// <summary>在资源管理器里打开成品目录（收件箱文件的成品落在这里）。</summary>
+    internal void OpenOutputFolder() => OpenFolder(Workspace.Output);
+
+    private void OpenFolder(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(path);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"OpenFolder({path}) failed: {ex.Message}");
+        }
     }
 
     // ─────────────────────────────────────────────────────── 外壳
@@ -846,19 +953,42 @@ internal sealed class MainWindow : Window
 
     internal ObservableCollection<FileEntry> Files => _files;
     internal bool IsRunning => _isRunning;
-    internal string LogText => string.Join("", _logLines);
+    internal string LogText
+    {
+        get { lock (_logLock) return string.Join("", _logLines); }
+    }
     internal string? ProgressLabelText { get; private set; }
     internal double ProgressValue { get; private set; }
     internal ConversionEngine? Engine => _engine;
     internal CancellationTokenSource? Cts => _cts;
 
+    /// <summary>
+    /// 往界面日志栏追加内容。
+    ///
+    /// 每一行都带 V2rayN 风格前缀：<c>2026/09/13 13:21:13.684611 [Info] [123456] 正文</c>
+    /// —— 时间戳（6 位小数）/ 级别 / 会话号。同一行也落一份到诊断文件。
+    /// 引擎回调来自后台线程，UI 部分统一走 RunOnUi。
+    /// </summary>
     internal void AppendLog(string message)
     {
-        _logLines.Add(message);
+        var formattedLines = new List<string>();
 
-        if (_logBox is not null)
+        foreach (var line in LogFormat.SplitLines(message))
         {
-            _logBox.Text += message;
+            var formatted = LogFormat.Line(line, LogFormat.InferLevel(line));
+            lock (_logLock) _logLines.Add(formatted);
+            AppLog.WriteFormatted(formatted);
+            formattedLines.Add(formatted);
+        }
+
+        if (formattedLines.Count == 0) return;
+
+        var text = string.Join(Environment.NewLine, formattedLines) + Environment.NewLine;
+
+        RunOnUi(() =>
+        {
+            if (_logBox is null) return;
+            _logBox.Text += text;
             try
             {
                 var viewer = FindVisualChild<ScrollViewer>(_logBox);
@@ -868,18 +998,39 @@ internal sealed class MainWindow : Window
             {
                 AppLog.Log($"Log autoscroll failed: {ex.Message}");
             }
-        }
+        });
 
-        RunStateChanged?.Invoke();
+        NotifyRunState();
     }
 
     internal void ClearLog()
     {
-        _logLines.Clear();
-        if (_logBox is not null) _logBox.Text = "";
+        lock (_logLock) _logLines.Clear();
+        RunOnUi(() => { if (_logBox is not null) _logBox.Text = ""; });
     }
 
-    private void NotifyRunState() => RunStateChanged?.Invoke();
+    /// <summary>
+    /// 引擎的日志/进度/完成回调都来自后台线程（阶段跑在 Task.Run 里），
+    /// 触碰任何 UI 控件都必须回到 UI 线程 —— 否则 WinUI 抛
+    /// 0x8001010E (RPC_E_WRONG_THREAD)，异常会顺着回调把整个阶段带崩。
+    /// </summary>
+    private void RunOnUi(Action action)
+    {
+        var queue = DispatcherQueue;
+        if (queue is null || queue.HasThreadAccess)
+        {
+            action();
+            return;
+        }
+
+        queue.TryEnqueue(() =>
+        {
+            try { action(); }
+            catch (Exception ex) { AppLog.Log($"UI callback failed: {ex}"); }
+        });
+    }
+
+    private void NotifyRunState() => RunOnUi(() => RunStateChanged?.Invoke());
 
     internal void AddFiles(IEnumerable<string> paths)
     {
@@ -931,11 +1082,27 @@ internal sealed class MainWindow : Window
     {
         if (_isRunning || _files.Count == 0) return;
 
-        var workDir = _files[0].SourceDirectory;
-
         bool skipConvert = _draft.SkipConvert;
         bool useUnified = _draft.UseUnifiedOutput;
         string unifiedDir = _draft.UnifiedOutputDir?.Trim() ?? "";
+
+        // 引擎与中间产物都在应用工作区里，先确保引擎就位
+        Workspace.EnsureCreated();
+        Workspace.SeedEngines();
+
+        var missing = Workspace.MissingEngines()
+            .Where(name =>
+                (name != "ffmpeg.exe" || !skipConvert) &&
+                (name != "kgg-dec.exe" || _files.Any(f => f.Extension == ".kgg")))
+            .ToList();
+
+        if (missing.Count > 0)
+        {
+            AppendLog($"✗ 缺少解密引擎：{string.Join("、", missing)}\n");
+            AppendLog($"  请把引擎放到程序目录，程序会自动复制进工作区：\n    {AppContext.BaseDirectory}\n");
+            AppendLog($"  或直接放进工作区：\n    {Workspace.Root}\n\n");
+            return;
+        }
 
         if (useUnified && string.IsNullOrEmpty(unifiedDir))
         {
@@ -953,13 +1120,14 @@ internal sealed class MainWindow : Window
         }
 
         ClearLog();
+        LogFormat.BeginSession();   // 新会话号：本次转换的所有日志共享
         _isRunning = true;
         ProgressValue = 0;
         ProgressLabelText = "开始…";
         NotifyRunState();
 
         _cts = new CancellationTokenSource();
-        var engine = new ConversionEngine(workDir);
+        var engine = new ConversionEngine(Workspace.Root, Workspace.Output, Workspace.Inbox);
         _engine = engine;
 
         engine.Log += AppendLog;
@@ -979,7 +1147,8 @@ internal sealed class MainWindow : Window
 
         engine.SetFiles(_files);
 
-        AppendLog($"工作目录: {workDir}\n");
+        AppendLog($"工作目录: {Workspace.Root}\n");
+        AppendLog($"成品输出: {(useUnified ? unifiedDir : "拖入的文件 → 源目录；收件箱的文件 → 成品目录")}\n");
         AppendLog($"共 {_files.Count} 个文件，开始转换…\n\n");
 
         try

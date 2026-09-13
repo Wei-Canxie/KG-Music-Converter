@@ -30,9 +30,41 @@ public sealed class ConversionEngine
 
     public IReadOnlyList<FileEntry> Files => _files;
 
-    public ConversionEngine(string workingDir)
+    /// <summary>来自收件箱的文件，成品改落到这里（避免回投被监视的文件夹）。</summary>
+    private readonly string? _fallbackOutputDir;
+
+    /// <summary>收件箱路径，用来判断某个源目录是不是收件箱。</summary>
+    private readonly string? _inboxDir;
+
+    public ConversionEngine(string workingDir, string? fallbackOutputDir = null, string? inboxDir = null)
     {
         WorkingDir = workingDir;
+        _fallbackOutputDir = fallbackOutputDir;
+        _inboxDir = inboxDir;
+    }
+
+    /// <summary>源目录是否就是收件箱（收件箱文件的"源目录"就是收件箱本身）。</summary>
+    private bool IsInboxDirectory(string? directory)
+    {
+        if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(_inboxDir)) return false;
+
+        try
+        {
+            var a = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
+            var b = Path.GetFullPath(_inboxDir).TrimEnd(Path.DirectorySeparatorChar);
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static byte[] ReadAllBytes(Stream stream)
+    {
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
     }
 
     private void OnLog(string msg) => Log?.Invoke(msg);
@@ -100,7 +132,7 @@ public sealed class ConversionEngine
         }
         catch (Exception ex)
         {
-            OnLog($"✗ 致命错误: {ex.Message}");
+            OnLog($"✗ 致命错误: {ex}");
             Completed?.Invoke(false);
         }
     }
@@ -212,11 +244,25 @@ public sealed class ConversionEngine
             };
             proc.Start();
             proc.StandardInput.WriteLine();
-            string stdout = proc.StandardOutput.ReadToEnd();
+
+            // 拿原始字节再按 GBK 解码：这工具是中文控制台程序，
+            // 直接按 UTF-8 读会得到"娆㈣繋浣跨敤"这种乱码
+            byte[] outBytes = ReadAllBytes(proc.StandardOutput.BaseStream);
+            byte[] errBytes = ReadAllBytes(proc.StandardError.BaseStream);
             proc.WaitForExit(120_000);
+
+            string stdout = AnsiText.Decode(outBytes);
+            string stderr = AnsiText.Decode(errBytes);
+
             OnLog($"{Path.GetFileName(unlockExe)} 完成 (exit={proc.ExitCode})");
             foreach (var line in stdout.Split('\n'))
                 if (line.Trim().Length > 0) OnLog($"  {line.Trim()}");
+
+            if (proc.ExitCode != 0 && stderr.Trim().Length > 0)
+            {
+                foreach (var line in stderr.Split('\n'))
+                    if (line.Trim().Length > 0) OnLog($"  ! {line.Trim()}");
+            }
 
             foreach (var f in kgmFiles)
                 OnFileChanged(f);
@@ -357,9 +403,22 @@ public sealed class ConversionEngine
         OnLog("=== 阶段6: 移动到目标目录 ===");
         var outputFiles = Directory.GetFiles(OutputDir).Where(f => !f.EndsWith(".exe") && !f.EndsWith(".bat")).ToList();
 
+        // 本批里同名项 → 成品文件路径。解密器按"基名"命名产物，
+        // 所以同名项只有一份产物：后来的项直接复用，而不是报"未找到输出"。
+        var movedByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var f in _files)
         {
             if (f.Status == FileStatus.Failed || f.Status == FileStatus.NeedsManualKGG) continue;
+
+            if (movedByBase.TryGetValue(f.BaseName, out var alreadyMoved))
+            {
+                f.OutputPath = alreadyMoved;
+                f.Status = FileStatus.Completed;
+                OnFileChanged(f);
+                OnLog($"  ~ {f.BaseName}: 与本批同名项重复，成品已产出 → {Path.GetFileName(alreadyMoved)}");
+                continue;
+            }
 
             // 找到对应的输出文件
             var match = outputFiles.FirstOrDefault(of =>
@@ -385,18 +444,40 @@ public sealed class ConversionEngine
             string targetDir;
             if (useUnifiedOutput && Directory.Exists(unifiedOutputDir))
                 targetDir = unifiedOutputDir;
+            else if (IsInboxDirectory(f.SourceDirectory) && !string.IsNullOrEmpty(_fallbackOutputDir))
+                targetDir = _fallbackOutputDir;   // 收件箱来的：成品进成品目录，不回投热文件夹
             else
                 targetDir = f.SourceDirectory;
 
+            // 一次运行可能同时产出 .flac 与 .mp3（转码没跳过时），都要搬走，
+            // 只搬第一个会把 mp3 落在工作区里成为孤儿文件
+            var produced = outputFiles
+                .Where(of => Path.GetFileNameWithoutExtension(of)
+                    .Equals(f.BaseName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
             try
             {
-                var target = Path.Combine(targetDir, Path.GetFileName(match));
-                if (File.Exists(target)) File.Delete(target);
-                File.Move(match, target);
-                f.OutputPath = target;
+                bool first = true;
+                foreach (var producedFile in produced)
+                {
+                    var target = Path.Combine(targetDir, Path.GetFileName(producedFile));
+                    if (File.Exists(target)) File.Delete(target);
+                    File.Move(producedFile, target);
+
+                    // OutputPath 指向用户最想要的那个：有 mp3 就用 mp3
+                    if (first || Path.GetExtension(target).Equals(".mp3", StringComparison.OrdinalIgnoreCase))
+                        f.OutputPath = target;
+                    first = false;
+
+                    OnLog($"  → {Path.GetFileName(target)} → {targetDir}");
+                }
+
                 f.Status = FileStatus.Completed;
                 OnFileChanged(f);
-                OnLog($"  → {Path.GetFileName(target)} → {targetDir}");
+
+                if (!string.IsNullOrEmpty(f.OutputPath))
+                    movedByBase[f.BaseName] = f.OutputPath;
             }
             catch (Exception e)
             {
