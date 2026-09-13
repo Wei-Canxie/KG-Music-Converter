@@ -1,4 +1,4 @@
-# KG Music Converter v1.1.1
+# KG Music Converter v1.0.0
 
 WinUI 3 桌面版首次正式发版（原 Kugo-Music-Converter Modpacks 的图形界面重构版）。
 
