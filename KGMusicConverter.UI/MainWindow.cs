@@ -1,27 +1,42 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
-using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Media.Animation;
 using WinRT.Interop;
+using Windows.Foundation;
 
 namespace KGMusicConverter;
 
+/// <summary>
+/// 工具外壳：32px 自绘标题栏 + <see cref="NavigationView"/>（LeftCompact 展开/收起），
+/// 页面在 C# 里现场构建，外观设置走"草稿 + 应用/取消更改"模型。
+///
+/// 窗口从不直接拥有它编辑的设置：它在一份草稿（<c>_draft</c>）上工作，
+/// 只有用户按下"应用"时才写回运行时实例（<c>_live</c>）与磁盘；
+/// <c>_applied</c> 是"取消更改"要回滚到的快照。
+/// </summary>
 internal sealed class MainWindow : Window
 {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_LAYERED = 0x80000;
     private const int LWA_ALPHA = 0x2;
+    private const double TitleBarHeight = 32;
+    private const double CompactPaneLength = 48;
+    private const double OpenPaneLength = 200;
+    private const double PaneAnimationMs = 120;
 
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
@@ -41,14 +56,33 @@ internal sealed class MainWindow : Window
     private const int WM_NCLBUTTONDOWN = 0xA1;
     private const int HTCAPTION = 0x2;
 
+    // ── 设置：运行时真身 / 草稿 / 快照 ──
+    private readonly Settings _live;
+    private Settings _draft;
+    private Settings _applied;
+
+    // ── 运行状态（属于应用而不是某个页面，页面重建不丢） ──
     private ConversionEngine? _engine;
     private CancellationTokenSource? _cts;
+    private readonly ObservableCollection<FileEntry> _files = new();
+    private readonly List<string> _logLines = new();
+    private readonly Dictionary<string, double> _scrollCache = new();
+    private bool _isRunning;
 
+    // ── 视觉元素 ──
     private NavigationView? _nav;
     private Grid? _rootGrid;
     private Image? _bgImage;
     private Border? _titleBar;
     private TextBlock? _titleText;
+    private Border? _applyBar;
+    private TextBlock? _applyBarText;
+    private ToolPage? _currentPage;
+    private string _currentTag = "convert";
+    private FrameworkElement? _clippedPane;
+    private bool _paneAnimationHooked;
+
+    // ── 转换页控件（页面构建时由 ConvertControl 挂上） ──
     private TextBox? _logBox;
     private ProgressBar? _progressBar;
     private TextBlock? _progressLabel;
@@ -63,32 +97,38 @@ internal sealed class MainWindow : Window
     private TextBlock? _kggWarning;
     private Button? _clearCompletedButton;
 
-    private double _blurRadius = 0;
-    private string? _backgroundImagePath;
+    private double _blurRadius;
     private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _originalBgImage;
 
-    private readonly ObservableCollection<FileEntry> _files = new();
-
-    public static void SetThemeColor(byte r, byte g, byte b)
-    {
-        ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, r, g, b);
-    }
+    /// <summary>运行状态 / 日志 / 队列发生变化，页面据此刷新显示。</summary>
+    internal event Action? RunStateChanged;
 
     public MainWindow()
     {
         Title = "KG Music Converter — 酷狗加密音频解密工具箱";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 750));
 
-        var settings = Settings.Load();
-        ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
-        ThemeManager.Instance.Mode = settings.Theme;
+        _live = Settings.Load();
+        _draft = _live.Clone();
+        _applied = _live.Clone();
+
+        ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, _live.ThemeR, _live.ThemeG, _live.ThemeB);
+        ThemeManager.Instance.Mode = _live.Theme;
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(null);
 
         BuildUI();
-        ApplyAllSettings(settings);
+        ApplyAppearance(_live, rebuildPage: false);
+
+        AppWindow.Closing += (_, _) =>
+        {
+            // 一次性工具：关窗即退出（不做托盘驻留）
+            AppLog.Log("Window closing, exiting");
+        };
     }
+
+    // ─────────────────────────────────────────────────────── 外壳
 
     private void BuildUI()
     {
@@ -97,23 +137,42 @@ internal sealed class MainWindow : Window
         _bgImage = new Image
         {
             Stretch = Stretch.UniformToFill,
-            Opacity = Settings.Load().BackgroundImageOpacity,
+            Opacity = _live.BackgroundImageOpacity,
         };
         _rootGrid.Children.Add(_bgImage);
 
         var mainLayer = new Grid();
-        mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32, GridUnitType.Pixel) });
+        mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleBarHeight, GridUnitType.Pixel) });
         mainLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        // ── 标题栏（32px，主题色跟随） ──
+        BuildTitleBar();
+        Grid.SetRow(_titleBar!, 0);
+        mainLayer.Children.Add(_titleBar!);
+
+        BuildNavigation();
+        Grid.SetRow(_nav!, 1);
+        mainLayer.Children.Add(_nav!);
+
+        BuildApplyBar();
+        Grid.SetRow(_applyBar!, 1);
+        mainLayer.Children.Add(_applyBar!);
+
+        _rootGrid.Children.Add(mainLayer);
+        Content = _rootGrid;
+
+        Navigate("convert", record: false);
+    }
+
+    private void BuildTitleBar()
+    {
         _titleBar = new Border
         {
-            Background = GetTitleBarBrush(Settings.Load().WindowOpacity),
-            Height = 32,
+            Background = GetTitleBarBrush(_live),
+            Height = TitleBarHeight,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         _titleBar.AddHandler(
-            Microsoft.UI.Xaml.UIElement.PointerPressedEvent,
+            UIElement.PointerPressedEvent,
             new Microsoft.UI.Xaml.Input.PointerEventHandler(TitleBar_PointerPressed),
             true);
 
@@ -147,17 +206,17 @@ internal sealed class MainWindow : Window
         titlePanel.Children.Add(titleButtons);
 
         _titleBar.Child = titlePanel;
-        Grid.SetRow(_titleBar, 0);
-        mainLayer.Children.Add(_titleBar);
+    }
 
-        // ── 侧边栏（LeftCompact 展开-收起式，默认收起） ──
+    private void BuildNavigation()
+    {
         _nav = new NavigationView
         {
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
             PaneDisplayMode = NavigationViewPaneDisplayMode.LeftCompact,
-            OpenPaneLength = 200,
-            CompactPaneLength = 48,
+            OpenPaneLength = OpenPaneLength,
+            CompactPaneLength = CompactPaneLength,
             IsPaneOpen = false,
         };
         _nav.MenuItems.Add(new NavigationViewItem { Content = "转换", Icon = new SymbolIcon(Symbol.Sync), Tag = "convert" });
@@ -166,117 +225,398 @@ internal sealed class MainWindow : Window
         _nav.SelectionChanged += Nav_SelectionChanged;
         _nav.Loaded += (_, _) =>
         {
-            try { _nav.SelectedItem = _nav.MenuItems[0]; }
-            catch { }
+            // 只在没有选中项时兜底，别覆盖已经导航过的页面
+            if (_nav.SelectedItem is null)
+            {
+                try { _nav.SelectedItem = _nav.MenuItems[0]; }
+                catch (Exception ex) { AppLog.Log($"Set default nav item failed: {ex.Message}"); }
+            }
             SyncSidebarBackground();
+            HookPaneAnimation();
         };
-        Grid.SetRow(_nav, 1);
-        mainLayer.Children.Add(_nav);
-
-        _rootGrid.Children.Add(mainLayer);
-        Content = _rootGrid;
-
-        _nav.Content = new ConvertControl(this);
     }
 
-    // ── 侧边栏背景同步（OsuCursorWin3 模板：VisualTreeHelper 找 SplitView） ──
+    /// <summary>右下角浮动的"应用 / 取消更改"卡片（不占布局行）。</summary>
+    private void BuildApplyBar()
+    {
+        var applyButton = new Button
+        {
+            Content = "应用",
+            MinWidth = 96,
+            Style = Application.Current.Resources["AccentButtonStyle"] as Style,
+        };
+        var cancelButton = new Button { Content = "取消更改", MinWidth = 96 };
 
-    private void SyncSidebarBackground()
+        applyButton.Click += (_, _) => ApplyDraft();
+        cancelButton.Click += (_, _) => CancelDraft();
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        row.Children.Add(cancelButton);
+        row.Children.Add(applyButton);
+
+        _applyBarText = new TextBlock
+        {
+            Text = "有未应用的更改",
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        row.Children.Insert(0, _applyBarText);
+
+        _applyBar = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(16, 12, 16, 12),
+            Margin = new Thickness(0, 0, 24, 24),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Visibility = Visibility.Collapsed,
+            Child = row,
+        };
+        UpdateApplyBarTheme();
+    }
+
+    // ─────────────────────────────────────────────────────── 页面生命周期
+
+    private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
+        {
+            Navigate(tag);
+        }
+    }
+
+    /// <summary>
+    /// 切换页面：先把旧页面的滚动位置记下来并注销它的事件处理器，
+    /// 再构建新页。页面不缓存——重建才能保证控件状态总是最新的。
+    /// </summary>
+    private void Navigate(string tag, bool record = true)
     {
         try
         {
-            var isDark = IsDarkTheme();
-            if (_nav != null)
+            if (record && _currentPage is not null)
             {
-                // 让菜单文字/图标颜色跟随主题（亮色→黑字）
-                _nav.RequestedTheme = isDark ? ElementTheme.Dark : ElementTheme.Light;
+                SaveScrollOffset(_currentTag);
+                _currentPage.Dispose();
+            }
+            else if (!record && _currentPage is not null)
+            {
+                _currentPage.Dispose();
             }
 
-            var splitView = FindSplitViewPane(_nav);
-            if (splitView?.Pane is not FrameworkElement pane) return;
+            _currentTag = tag;
+            _currentPage = BuildPage(tag);
+            if (_nav is not null) _nav.Content = _currentPage;
 
-            var bg = new SolidColorBrush(isDark
-                ? ColorHelper.FromArgb(255, 0x2D, 0x2D, 0x2D)
-                : Colors.White);
-
-            if (pane is Panel panel)
-            {
-                panel.Background = bg;
-            }
-            else if (pane is Border border)
-            {
-                border.Background = bg;
-                // 左侧直角贴窗边，右侧 12px 圆角
-                border.CornerRadius = new CornerRadius(0, 12, 12, 0);
-            }
-
-            ApplyRoundedClip(pane);
+            RestoreScrollOffset(tag);
         }
-        catch { }
-    }
-
-    private static SplitView? FindSplitViewPane(DependencyObject? parent)
-    {
-        if (parent == null) return null;
-
-        int count = VisualTreeHelper.GetChildrenCount(parent);
-        for (int i = 0; i < count; i++)
+        catch (Exception ex)
         {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is SplitView sv)
-                return sv;
-
-            var result = FindSplitViewPane(child);
-            if (result != null) return result;
+            AppLog.Log($"Navigate({tag}) failed: {ex}");
         }
-        return null;
     }
 
-    private static void ApplyRoundedClip(FrameworkElement pane)
+    private ToolPage BuildPage(string tag) => tag switch
+    {
+        "settings" => new SettingsControl(this),
+        "about" => new AboutControl(this),
+        _ => new ConvertControl(this),
+    };
+
+    private void SaveScrollOffset(string tag)
+    {
+        var offset = _currentPage?.FindScrollOffset();
+        if (offset is > 0) _scrollCache[tag] = offset.Value;
+    }
+
+    private void RestoreScrollOffset(string tag)
+    {
+        if (!_scrollCache.TryGetValue(tag, out var offset) || offset <= 0) return;
+        var page = _currentPage;
+        if (page is null) return;
+
+        // 布局完成后再滚动，否则 ScrollableHeight 还是 0
+        page.Loaded += (_, _) =>
+        {
+            try { page.ScrollToOffset(offset); }
+            catch (Exception ex) { AppLog.Log($"Restore scroll failed: {ex.Message}"); }
+        };
+    }
+
+    internal double GetScrollOffset(string tag) =>
+        _scrollCache.TryGetValue(tag, out var value) ? value : 0;
+
+    internal void SetScrollOffset(string tag, double offset) => _scrollCache[tag] = offset;
+
+    /// <summary>重建当前页（主题 / 主题色变化后需要，控件颜色才会跟着换）。</summary>
+    internal void RebuildCurrentPage() => Navigate(_currentTag, record: false);
+
+    // ─────────────────────────────────────────────────────── 草稿 / 应用 / 取消
+
+    internal Settings Draft => _draft;
+
+    internal Settings Live => _live;
+
+    /// <summary>设置页改了草稿：立即预览外观并浮出应用卡片。</summary>
+    internal void MarkDirty()
+    {
+        PreviewDraftAppearance();
+        if (_applyBar is not null) _applyBar.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>把草稿的外观套到窗口上（不落盘、不提交）。</summary>
+    internal void PreviewDraftAppearance() => ApplyAppearance(_draft, rebuildPage: false);
+
+    /// <summary>应用：草稿 → 运行时实例 → 落盘 → 快照 → 重建页面。</summary>
+    internal void ApplyDraft()
     {
         try
         {
-            var compositor = ElementCompositionPreview.GetElementVisual(pane).Compositor;
-            var clip = compositor.CreateRectangleClip();
-            clip.TopLeftRadius = new Vector2(0, 0);
-            clip.TopRightRadius = new Vector2(12, 12);
-            clip.BottomLeftRadius = new Vector2(0, 0);
-            clip.BottomRightRadius = new Vector2(12, 12);
-            SyncClipBounds(clip, pane);
-            ElementCompositionPreview.GetElementVisual(pane).Clip = clip;
+            _live.CopyFrom(_draft);
+            _live.Save();
+            _applied = _live.Clone();
+            _draft = _live.Clone();
 
-            pane.SizeChanged += (s, e) =>
-            {
-                try { SyncClipBounds(clip, pane); }
-                catch { }
-            };
+            ApplyAppearance(_live, rebuildPage: true);
+            HideApplyBar();
+            AppLog.Log("Settings applied");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLog.Log($"ApplyDraft failed: {ex}");
+        }
     }
 
-    private static void SyncClipBounds(RectangleClip clip, FrameworkElement pane)
+    /// <summary>取消更改：从快照回滚草稿并重建页面。</summary>
+    internal void CancelDraft()
     {
-        clip.Left = 0f;
-        clip.Top = 0f;
-        clip.Right = (float)pane.ActualWidth;
-        clip.Bottom = (float)pane.ActualHeight;
+        try
+        {
+            _draft = _applied.Clone();
+            ApplyAppearance(_draft, rebuildPage: true);
+            HideApplyBar();
+            AppLog.Log("Settings changes reverted");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"CancelDraft failed: {ex}");
+        }
+    }
+
+    private void HideApplyBar()
+    {
+        if (_applyBar is not null) _applyBar.Visibility = Visibility.Collapsed;
+    }
+
+    // ─────────────────────────────────────────────────────── 外观
+
+    /// <summary>
+    /// 把设置套到窗口上：主题 → 背景材质 → 不透明度 → 标题栏 → 侧边栏。
+    /// <paramref name="rebuildPage"/> 为真时重建当前页（控件颜色需要跟着换），
+    /// 拖动不透明度滑条时传假——否则正在拖的那个滑条会被销毁。
+    /// </summary>
+    internal void ApplyAppearance(Settings settings, bool rebuildPage)
+    {
+        try
+        {
+            ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
+            ThemeManager.Instance.Mode = settings.Theme;
+
+            // root 的 RequestedTheme 决定 NavigationView 菜单文字/图标颜色
+            if (_rootGrid is not null)
+            {
+                _rootGrid.RequestedTheme = settings.Theme switch
+                {
+                    ThemeMode.Light => ElementTheme.Light,
+                    ThemeMode.Dark => ElementTheme.Dark,
+                    _ => ElementTheme.Default,
+                };
+            }
+
+            ApplyBackground(settings);
+            ApplyOpacity(settings);
+
+            if (_titleBar is not null) _titleBar.Background = GetTitleBarBrush(settings);
+            if (_titleText is not null) _titleText.Foreground = GetTitleBarForeground();
+
+            UpdateApplyBarTheme();
+            SyncSidebarBackground();
+
+            if (rebuildPage) Navigate(_currentTag, record: false);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"ApplyAppearance failed: {ex}");
+        }
+    }
+
+    /// <summary>云母 / 亚克力激活时，背景材质自己拥有窗口表面。</summary>
+    private static bool IsMaterialActive(Settings settings) => settings.Blur != BlurMode.None;
+
+    private void ApplyBackground(Settings settings)
+    {
+        try
+        {
+            if (IsMaterialActive(settings))
+            {
+                SystemBackdrop = settings.Blur == BlurMode.Acrylic
+                    ? new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop()
+                    : new Microsoft.UI.Xaml.Media.MicaBackdrop();
+                if (_rootGrid is not null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
+            }
+            else
+            {
+                SystemBackdrop = null;
+                if (_rootGrid is not null) _rootGrid.Background = ThemeManager.Instance.Background;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"ApplyBackground failed: {ex.Message}");
+            SystemBackdrop = null;
+        }
+
+        ApplyBackgroundImage(settings);
+    }
+
+    private void ApplyBackgroundImage(Settings settings)
+    {
+        if (_bgImage is null) return;
+
+        var path = settings.BackgroundImagePath;
+        _blurRadius = settings.BlurRadius;
+
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            _bgImage.Source = null;
+            _originalBgImage = null;
+            return;
+        }
+
+        try
+        {
+            var original = LoadImageToWriteableBitmap(path);
+            if (original is null)
+            {
+                _bgImage.Source = null;
+                _originalBgImage = null;
+                return;
+            }
+
+            _originalBgImage = original;
+            _bgImage.Source = GaussianBlurHelper.BlurIfNeeded(original, (int)settings.BlurRadius);
+            _bgImage.Opacity = settings.BackgroundImageOpacity;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"ApplyBackgroundImage failed: {ex.Message}");
+            _bgImage.Source = null;
+            _originalBgImage = null;
+        }
+    }
+
+    internal void SetBackgroundImageOpacity(double opacity)
+    {
+        if (_bgImage is not null) _bgImage.Opacity = opacity;
+    }
+
+    internal void RefreshBackgroundBlur(double radius)
+    {
+        _blurRadius = radius;
+        if (_bgImage is null || _originalBgImage is null) return;
+
+        try
+        {
+            _bgImage.Source = GaussianBlurHelper.BlurIfNeeded(_originalBgImage, (int)radius);
+            _bgImage.Opacity = _draft.BackgroundImageOpacity;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"RefreshBackgroundBlur failed: {ex.Message}");
+        }
+    }
+
+    private static Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? LoadImageToWriteableBitmap(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            bitmap.SetSource(stream.AsRandomAccessStream());
+            var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap((int)bitmap.PixelWidth, (int)bitmap.PixelHeight);
+            using var fileStream = File.OpenRead(path);
+            wb.SetSource(fileStream.AsRandomAccessStream());
+            return wb;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"LoadImageToWriteableBitmap failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 窗口不透明度：WinUI 3 窗口没有 Opacity 属性，alpha 只能挂在 Win32 窗口上。
+    /// 材质模式下写死不透明——否则会把材质一起淡掉。
+    /// </summary>
+    internal void ApplyOpacity(Settings settings)
+    {
+        double opacity = IsMaterialActive(settings) ? 1.0 : settings.WindowOpacity;
+
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+            if ((exStyle & WS_EX_LAYERED) == 0)
+            {
+                SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+            }
+            SetLayeredWindowAttributes(hwnd, 0, (byte)Math.Clamp(opacity * 255, 25, 255), LWA_ALPHA);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"ApplyOpacity failed: {ex.Message}");
+        }
+
+        if (_titleBar is not null) _titleBar.Background = GetTitleBarBrush(settings);
     }
 
     private bool IsDarkTheme() => ThemeManager.Instance.IsDark;
 
-    private Brush GetTitleBarForeground()
-    {
-        return IsDarkTheme() ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black);
-    }
+    private Brush GetTitleBarForeground() =>
+        IsDarkTheme() ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black);
 
-    private Brush GetTitleBarBrush(double opacity)
+    private Brush GetTitleBarBrush(Settings settings)
     {
+        // 材质模式与 100% 不透明度下标题栏实心；否则比主体略高一点 alpha，
+        // 保证标题文字始终可读。
+        double opacity = IsMaterialActive(settings) ? 1.0 : settings.WindowOpacity;
         double titleOpacity = opacity <= 0.9 ? Math.Min(1.0, opacity + 0.1) : opacity;
-        var isDark = IsDarkTheme();
-        var color = isDark
+
+        var color = IsDarkTheme()
             ? ColorHelper.FromArgb((byte)(titleOpacity * 255), 0x2D, 0x2D, 0x2D)
             : ColorHelper.FromArgb((byte)(titleOpacity * 255), 0xF3, 0xF3, 0xF3);
         return new SolidColorBrush(color);
+    }
+
+    private void UpdateApplyBarTheme()
+    {
+        if (_applyBar is null) return;
+
+        var isDark = IsDarkTheme();
+        _applyBar.Background = new SolidColorBrush(isDark
+            ? ColorHelper.FromArgb(0xF0, 0x2D, 0x2D, 0x2D)
+            : ColorHelper.FromArgb(0xF0, 0xF3, 0xF3, 0xF3));
+        _applyBar.BorderThickness = new Thickness(1);
+        _applyBar.BorderBrush = new SolidColorBrush(isDark
+            ? ColorHelper.FromArgb(0x40, 0xFF, 0xFF, 0xFF)
+            : ColorHelper.FromArgb(0x30, 0x00, 0x00, 0x00));
+        if (_applyBarText is not null)
+        {
+            _applyBarText.Foreground = isDark
+                ? new SolidColorBrush(Colors.White)
+                : new SolidColorBrush(Colors.Black);
+        }
     }
 
     private void TitleBar_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -287,252 +627,413 @@ internal sealed class MainWindow : Window
             ReleaseCapture();
             SendMessage(hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
         }
-        catch { }
-    }
-
-    private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
-    {
-        if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
+        catch (Exception ex)
         {
-            _nav!.Content = BuildPage(tag);
+            AppLog.Log($"Title bar drag failed: {ex.Message}");
         }
     }
 
-    // ── 页面分发（OsuCursorWin3 模板：BuildPage(tag) 动态重建） ──
+    // ─────────────────────────────────────────────────────── 侧边栏
 
-    private object BuildPage(string tag)
-    {
-        return tag switch
-        {
-            "convert" => new ConvertControl(this),
-            "settings" => new SettingsControl(this),
-            "about" => new AboutControl(this),
-            _ => new ConvertControl(this)
-        };
-    }
-
-    internal void ApplyAllSettings(Settings settings)
-    {
-        ThemeManager.Instance.AccentColor = ColorHelper.FromArgb(255, settings.ThemeR, settings.ThemeG, settings.ThemeB);
-        ThemeManager.Instance.Mode = settings.Theme;
-
-        // 关键：root 的 RequestedTheme 决定 NavigationView 菜单文字/图标颜色
-        // （亮色主题下侧边栏字符才变黑）
-        if (_rootGrid != null)
-        {
-            _rootGrid.RequestedTheme = settings.Theme switch
-            {
-                ThemeMode.Light => ElementTheme.Light,
-                ThemeMode.Dark => ElementTheme.Dark,
-                _ => ElementTheme.Default
-            };
-        }
-
-        ApplyBlurMode(settings.Blur, settings.Theme);
-        ApplyBackgroundImage(settings.BackgroundImagePath);
-        ApplyOpacity(settings.WindowOpacity, settings.PanelOpacity);
-
-        if (_titleBar != null) _titleBar.Background = GetTitleBarBrush(settings.WindowOpacity);
-        if (_titleText != null) _titleText.Foreground = GetTitleBarForeground();
-        SyncSidebarBackground();
-    }
-
-    private void ApplyBlurMode(BlurMode blur, ThemeMode theme)
+    private void SyncSidebarBackground()
     {
         try
         {
-            bool isDark = theme != ThemeMode.Light;
-            var settings = Settings.Load();
-            if (blur == BlurMode.Mica)
+            var isDark = IsDarkTheme();
+            if (_nav is not null)
             {
-                SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
-                if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
+                _nav.RequestedTheme = isDark ? ElementTheme.Dark : ElementTheme.Light;
             }
-            else if (blur == BlurMode.Acrylic)
+
+            var splitView = FindSplitView(_nav);
+            if (splitView?.Pane is not FrameworkElement pane) return;
+
+            var background = new SolidColorBrush(isDark
+                ? ColorHelper.FromArgb(255, 0x2D, 0x2D, 0x2D)
+                : Colors.White);
+
+            switch (pane)
             {
-                try
-                {
-                    SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
-                    if (_rootGrid != null) _rootGrid.Background = new SolidColorBrush(Colors.Transparent);
-                }
-                catch
-                {
-                    SystemBackdrop = null;
-                }
+                case Panel panel: panel.Background = background; break;
+                case Border border:
+                    border.Background = background;
+                    border.CornerRadius = new CornerRadius(0, 12, 12, 0);
+                    break;
+                default:
+                    AppLog.Log($"SyncSidebar: unexpected pane type {pane.GetType().Name}");
+                    break;
             }
-            else
-            {
-                SystemBackdrop = null;
-                if (_rootGrid != null) _rootGrid.Background = ThemeManager.Instance.Background;
-            }
+
+            // 模板给 pane 留了 3px 边距 + 1px 宿主边框，会在侧边栏上下留出发丝缝。
+            // 抹平 pane 及其到 SplitView 之间的祖先，只保留 1px 宿主内缩。
+            pane.Margin = new Thickness(0);
+            FlattenPaneAncestors(pane, splitView);
+
+            ApplyRoundedPaneClip(pane);
         }
-        catch
+        catch (Exception ex)
         {
-            SystemBackdrop = null;
+            AppLog.Log($"SyncSidebarBackground failed: {ex.Message}");
         }
     }
 
-    internal void ApplyBlurRadius(double radius, BlurMode mode)
+    private static void FlattenPaneAncestors(DependencyObject pane, DependencyObject? stopAt)
     {
-        _blurRadius = radius;
+        try
+        {
+            var parent = VisualTreeHelper.GetParent(pane);
+            while (parent is not null && parent != stopAt)
+            {
+                switch (parent)
+                {
+                    case Border border:
+                        border.Margin = new Thickness(0);
+                        border.Padding = new Thickness(0);
+                        border.BorderThickness = new Thickness(0);
+                        border.Background = new SolidColorBrush(Colors.Transparent);
+                        break;
+                    case Panel panel:
+                        panel.Margin = new Thickness(0);
+                        panel.Background = new SolidColorBrush(Colors.Transparent);
+                        break;
+                    case ContentPresenter presenter:
+                        presenter.Margin = new Thickness(0);
+                        break;
+                }
 
-        if (_bgImage != null && _originalBgImage != null)
-        {
-            if (radius > 0)
-            {
-                var blurred = GaussianBlurHelper.Blur(_originalBgImage, (int)radius);
-                _bgImage.Source = blurred;
+                parent = VisualTreeHelper.GetParent(parent);
             }
-            else
-            {
-                _bgImage.Source = _originalBgImage;
-            }
-            _bgImage.Opacity = Settings.Load().BackgroundImageOpacity;
         }
-        else
+        catch (Exception ex)
         {
-            ApplySystemBackdrop(mode);
+            AppLog.Log($"FlattenPaneAncestors failed: {ex.Message}");
         }
     }
 
-    private void ApplySystemBackdrop(BlurMode mode)
+    /// <summary>
+    /// 圆角裁剪只能来自 Composition 层（XAML 的 RectangleGeometry 没有 CornerRadius）。
+    /// 同一个 pane 只裁一次——重复裁会不断叠加 SizeChanged 订阅。
+    /// </summary>
+    private void ApplyRoundedPaneClip(FrameworkElement pane)
     {
-        if (_rootGrid == null) return;
-
-        var oldSbe = _rootGrid.Children.FirstOrDefault(c => c is SystemBackdropElement);
-        if (oldSbe != null) _rootGrid.Children.Remove(oldSbe);
-
-        var oldOverlay = _rootGrid.Children.FirstOrDefault(c => c is Border b && b.Name == "BlurOverlay");
-        if (oldOverlay != null) _rootGrid.Children.Remove(oldOverlay);
-
-        if (mode == BlurMode.None) return;
+        if (ReferenceEquals(_clippedPane, pane)) return;
 
         try
         {
-            var sbe = new SystemBackdropElement
+            _clippedPane = pane;
+
+            var visual = ElementCompositionPreview.GetElementVisual(pane);
+            var clip = visual.Compositor.CreateRectangleClip();
+            clip.TopLeftRadius = Vector2.Zero;
+            clip.BottomLeftRadius = Vector2.Zero;
+            clip.TopRightRadius = new Vector2(12, 12);
+            clip.BottomRightRadius = new Vector2(12, 12);
+
+            SyncClipBounds(clip, pane);
+            visual.Clip = clip;
+
+            pane.SizeChanged += (_, _) =>
             {
-                Name = "SystemBackdropElement",
-                CornerRadius = new CornerRadius(0),
+                try { SyncClipBounds(clip, pane); }
+                catch (Exception ex) { AppLog.Log($"Pane clip resize failed: {ex.Message}"); }
             };
-
-            if (mode == BlurMode.Acrylic)
-            {
-                sbe.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
-            }
-            else if (mode == BlurMode.Mica)
-            {
-                sbe.SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
-            }
-
-            _rootGrid.Children.Insert(1, sbe);
         }
-        catch
+        catch (Exception ex)
         {
-            var overlay = new Border
-            {
-                Name = "BlurOverlay",
-                Background = new SolidColorBrush(mode == BlurMode.Acrylic ? Colors.White : Colors.Black),
-                Opacity = Math.Min(_blurRadius / 50.0, 0.8),
-            };
-            _rootGrid.Children.Insert(1, overlay);
+            AppLog.Log($"ApplyRoundedPaneClip failed: {ex.Message}");
         }
     }
 
-    private void ApplyBackgroundImage(string? path)
+    /// <summary>
+    /// 裁剪盒保持 pane 的真实尺寸。零尺寸的裁剪会把整条侧边栏藏掉，
+    /// 视觉状态切换时会闪几帧空白——所以非正值直接跳过，保留上一份好数据。
+    /// </summary>
+    private static void SyncClipBounds(Microsoft.UI.Composition.RectangleClip clip, FrameworkElement pane)
     {
-        if (_bgImage == null) return;
+        double width = pane.ActualWidth, height = pane.ActualHeight;
+        if (!(width > 0) || !(height > 0)) return;
 
-        _backgroundImagePath = path;
+        clip.Left = 0f;
+        clip.Top = 0f;
+        clip.Right = (float)width;
+        clip.Bottom = (float)height;
+    }
 
-        if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+    /// <summary>
+    /// 接上侧边栏收起动画。模板自带的收起只有 120ms 且同时把 pane 压成 48px，
+    /// 滑动过程完全看不见；所以这里不跟模板抢属性，只动画 pane 自身宽度。
+    /// </summary>
+    private void HookPaneAnimation()
+    {
+        if (_paneAnimationHooked || _nav is null) return;
+        _paneAnimationHooked = true;
+
+        try
+        {
+            _nav.RegisterPropertyChangedCallback(
+                NavigationView.IsPaneOpenProperty,
+                (_, _) => OnPaneOpenChanged());
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"HookPaneAnimation failed: {ex.Message}");
+        }
+    }
+
+    private void OnPaneOpenChanged()
+    {
+        if (_nav is null) return;
+
+        try
+        {
+            var splitView = FindSplitView(_nav);
+            if (splitView?.Pane is not FrameworkElement pane) return;
+
+            if (_nav.IsPaneOpen)
+            {
+                // 展开：把钉住的宽度还给模板，让它自己滑开
+                pane.ClearValue(FrameworkElement.WidthProperty);
+                return;
+            }
+
+            double from = pane.ActualWidth;
+            if (!(from > CompactPaneLength)) return;
+
+            // 先钉住当前宽度作为动画起点（SplitView 平时不设 Width，是 NaN）
+            pane.Width = from;
+
+            var animation = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(TimeSpan.FromMilliseconds(PaneAnimationMs)),
+                EnableDependentAnimation = true,
+            };
+            animation.KeyFrames.Add(new SplineDoubleKeyFrame
+            {
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(PaneAnimationMs)),
+                Value = CompactPaneLength,
+                KeySpline = new KeySpline
+                {
+                    ControlPoint1 = new Point(0.1, 0.9),
+                    ControlPoint2 = new Point(0.2, 1.0),
+                },
+            });
+
+            Storyboard.SetTarget(animation, pane);
+            Storyboard.SetTargetProperty(animation, "Width");
+
+            var storyboard = new Storyboard();
+            storyboard.Children.Add(animation);
+            storyboard.Completed += (_, _) =>
+            {
+                try { pane.ClearValue(FrameworkElement.WidthProperty); }
+                catch (Exception ex) { AppLog.Log($"Pane animation cleanup failed: {ex.Message}"); }
+            };
+            storyboard.Begin();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Log($"Pane close animation failed: {ex.Message}");
+        }
+    }
+
+    private static SplitView? FindSplitView(DependencyObject? parent)
+    {
+        if (parent is null) return null;
+
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is SplitView splitView) return splitView;
+
+            var nested = FindSplitView(child);
+            if (nested is not null) return nested;
+        }
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────── 运行状态（属于应用）
+
+    internal ObservableCollection<FileEntry> Files => _files;
+    internal bool IsRunning => _isRunning;
+    internal string LogText => string.Join("", _logLines);
+    internal string? ProgressLabelText { get; private set; }
+    internal double ProgressValue { get; private set; }
+    internal ConversionEngine? Engine => _engine;
+    internal CancellationTokenSource? Cts => _cts;
+
+    internal void AppendLog(string message)
+    {
+        _logLines.Add(message);
+
+        if (_logBox is not null)
+        {
+            _logBox.Text += message;
+            try
+            {
+                var viewer = FindVisualChild<ScrollViewer>(_logBox);
+                viewer?.ChangeView(null, viewer.ScrollableHeight, null);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log($"Log autoscroll failed: {ex.Message}");
+            }
+        }
+
+        RunStateChanged?.Invoke();
+    }
+
+    internal void ClearLog()
+    {
+        _logLines.Clear();
+        if (_logBox is not null) _logBox.Text = "";
+    }
+
+    private void NotifyRunState() => RunStateChanged?.Invoke();
+
+    internal void AddFiles(IEnumerable<string> paths)
+    {
+        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { ".kgg", ".kgm", ".kgma", ".vpr", ".flac" };
+
+        foreach (var path in paths)
         {
             try
             {
-                var wb = LoadImageToWriteableBitmap(path);
-                if (wb != null)
+                if (!File.Exists(path)) continue;
+                var ext = Path.GetExtension(path).ToLowerInvariant();
+                if (!supported.Contains(ext)) continue;
+                if (_files.Any(f => string.Equals(f.SourcePath, path, StringComparison.OrdinalIgnoreCase))) continue;
+
+                _files.Add(new FileEntry
                 {
-                    _originalBgImage = wb;
-                    if (_blurRadius > 0)
-                    {
-                        var blurred = GaussianBlurHelper.Blur(wb, (int)_blurRadius);
-                        _bgImage.Source = blurred;
-                    }
-                    else
-                    {
-                        _bgImage.Source = wb;
-                    }
-                    _bgImage.Opacity = Settings.Load().BackgroundImageOpacity;
-                }
-                else
-                {
-                    _bgImage.Source = null;
-                    _originalBgImage = null;
-                }
+                    SourcePath = path,
+                    FileName = Path.GetFileName(path),
+                    SourceDirectory = Path.GetDirectoryName(path) ?? "",
+                    BaseName = Path.GetFileNameWithoutExtension(path),
+                    Extension = ext,
+                    Status = FileStatus.Pending,
+                });
             }
-            catch
+            catch (Exception ex)
             {
-                _bgImage.Source = null;
-                _originalBgImage = null;
+                AppLog.Log($"AddFiles({path}) failed: {ex.Message}");
             }
         }
-        else
-        {
-            _bgImage.Source = null;
-            _originalBgImage = null;
-        }
+
+        NotifyRunState();
     }
 
-    private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? LoadImageToWriteableBitmap(string path)
+    internal void RemoveCompletedFiles()
     {
+        var finished = _files
+            .Where(f => f.Status is FileStatus.Completed or FileStatus.Failed)
+            .ToList();
+        foreach (var entry in finished) _files.Remove(entry);
+        NotifyRunState();
+    }
+
+    /// <summary>
+    /// 启动转换。引擎归窗口所有，页面只是视图——所以切到别的页
+    /// 或者页面被重建都不会让运行中的进度更新丢失。
+    /// </summary>
+    internal async void StartConversion()
+    {
+        if (_isRunning || _files.Count == 0) return;
+
+        var workDir = _files[0].SourceDirectory;
+
+        bool skipConvert = _draft.SkipConvert;
+        bool useUnified = _draft.UseUnifiedOutput;
+        string unifiedDir = _draft.UnifiedOutputDir?.Trim() ?? "";
+
+        if (useUnified && string.IsNullOrEmpty(unifiedDir))
+        {
+            AppendLog("✗ 请指定统一输出目录\n");
+            return;
+        }
+        if (useUnified && !Directory.Exists(unifiedDir))
+        {
+            try { Directory.CreateDirectory(unifiedDir); }
+            catch (Exception ex)
+            {
+                AppendLog($"✗ 无法创建输出目录: {ex.Message}\n");
+                return;
+            }
+        }
+
+        ClearLog();
+        _isRunning = true;
+        ProgressValue = 0;
+        ProgressLabelText = "开始…";
+        NotifyRunState();
+
+        _cts = new CancellationTokenSource();
+        var engine = new ConversionEngine(workDir);
+        _engine = engine;
+
+        engine.Log += AppendLog;
+        engine.FileStatusChanged += _ => NotifyRunState();
+        engine.ReportProgress += (pct, step) =>
+        {
+            ProgressValue = pct;
+            ProgressLabelText = step;
+            NotifyRunState();
+        };
+        engine.Completed += ok =>
+        {
+            _isRunning = false;
+            ProgressLabelText = ok ? "✅ 完成" : "⚠️ 未完成";
+            NotifyRunState();
+        };
+
+        engine.SetFiles(_files);
+
+        AppendLog($"工作目录: {workDir}\n");
+        AppendLog($"共 {_files.Count} 个文件，开始转换…\n\n");
+
         try
         {
-            using var stream = System.IO.File.OpenRead(path);
-            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-            bitmap.SetSource(stream.AsRandomAccessStream());
-            var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap((int)bitmap.PixelWidth, (int)bitmap.PixelHeight);
-            using var fileStream = System.IO.File.OpenRead(path);
-            wb.SetSource(fileStream.AsRandomAccessStream());
-            return wb;
+            await engine.RunAsync(skipConvert, useUnified, unifiedDir, _cts.Token);
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            AppendLog($"✗ 异常: {ex.Message}\n");
+        }
+        finally
+        {
+            _isRunning = false;
+            NotifyRunState();
         }
     }
 
-    internal void ApplyOpacity(double windowOpacity, double panelOpacity)
+    internal void CancelConversion()
     {
-        try
-        {
-            var hwnd = WindowNative.GetWindowHandle(this);
-            int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-            if ((exStyle & WS_EX_LAYERED) == 0)
-            {
-                SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-            }
-            byte alpha = (byte)(windowOpacity * 255);
-            SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-        }
-        catch { }
-
-        if (_titleBar != null)
-        {
-            _titleBar.Background = GetTitleBarBrush(windowOpacity);
-        }
+        _cts?.Cancel();
+        AppendLog("⛔ 正在取消…\n");
     }
 
-    internal void SetBackgroundImageOpacity(double opacity)
+    private static T? FindVisualChild<T>(DependencyObject obj) where T : DependencyObject
     {
-        if (_bgImage != null) _bgImage.Opacity = opacity;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(obj); i++)
+        {
+            var child = VisualTreeHelper.GetChild(obj, i);
+            if (child is T result) return result;
+
+            var descendant = FindVisualChild<T>(child);
+            if (descendant is not null) return descendant;
+        }
+        return null;
     }
 
-    internal Frame? Frame => null;
-    internal ObservableCollection<FileEntry> Files => _files;
+    // ─────────────────────────────────────────────────────── 转换页控件绑定
+
     internal TextBox? LogBox { get => _logBox; set => _logBox = value; }
     internal ProgressBar? ProgressBar { get => _progressBar; set => _progressBar = value; }
     internal TextBlock? ProgressLabel { get => _progressLabel; set => _progressLabel = value; }
     internal Button? StartButton { get => _startButton; set => _startButton = value; }
     internal Button? CancelButton { get => _cancelButton; set => _cancelButton = value; }
+    internal ListView? QueueList { get => _queueList; set => _queueList = value; }
     internal CheckBox? SkipCopyCheck { get => _skipCopyCheck; set => _skipCopyCheck = value; }
     internal CheckBox? SkipConvertCheck { get => _skipConvertCheck; set => _skipConvertCheck = value; }
     internal CheckBox? UnifiedOutputCheck { get => _unifiedOutputCheck; set => _unifiedOutputCheck = value; }
@@ -540,13 +1041,25 @@ internal sealed class MainWindow : Window
     internal Button? BrowseOutputButton { get => _browseOutputButton; set => _browseOutputButton = value; }
     internal TextBlock? KggWarning { get => _kggWarning; set => _kggWarning = value; }
     internal Button? ClearCompletedButton { get => _clearCompletedButton; set => _clearCompletedButton = value; }
-    internal ListView? QueueList { get => _queueList; set => _queueList = value; }
-    internal ConversionEngine? Engine => _engine;
-    internal CancellationTokenSource? Cts => _cts;
 
-    internal void SetEngine(ConversionEngine engine, CancellationTokenSource cts)
+    /// <summary>转换页选项是"即时生效"的运行选项（V2rayN 风格），不属于草稿模型。</summary>
+    internal void SaveRunOptions()
     {
-        _engine = engine;
-        _cts = cts;
+        _live.SkipCopy = _skipCopyCheck?.IsChecked ?? false;
+        _live.SkipConvert = _skipConvertCheck?.IsChecked ?? false;
+        _live.UseUnifiedOutput = _unifiedOutputCheck?.IsChecked ?? false;
+        _live.UnifiedOutputDir = _unifiedOutputBox?.Text?.Trim() ?? "";
+
+        // 同步草稿，避免下次"取消更改"把这些运行选项一起回滚
+        _draft.SkipCopy = _live.SkipCopy;
+        _draft.SkipConvert = _live.SkipConvert;
+        _draft.UseUnifiedOutput = _live.UseUnifiedOutput;
+        _draft.UnifiedOutputDir = _live.UnifiedOutputDir;
+        _applied.SkipCopy = _live.SkipCopy;
+        _applied.SkipConvert = _live.SkipConvert;
+        _applied.UseUnifiedOutput = _live.UseUnifiedOutput;
+        _applied.UnifiedOutputDir = _live.UnifiedOutputDir;
+
+        _live.Save();
     }
 }
