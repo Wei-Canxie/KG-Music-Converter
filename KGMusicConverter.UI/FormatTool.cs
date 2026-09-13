@@ -121,6 +121,10 @@ internal sealed class FormatTool
             DefaultButton = ContentDialogButton.None,
         };
 
+        // 默认的对话框最大宽度（约 548）比这里的内容窄，右侧的"浏览…""开始转换"
+        // 会被裁到看不见、点不到 —— 显式放宽
+        _dialog.Resources["ContentDialogMaxWidth"] = 720.0;
+
         // 整理跑到一半被关掉的话，任务还在后台写文件、界面却没了 —— 先挡住
         _dialog.Closing += (_, e) =>
         {
@@ -142,16 +146,22 @@ internal sealed class FormatTool
 
     private UIElement BuildContent()
     {
-        var panel = new StackPanel { Spacing = 12, Width = 560 };
+        // 布局要点：凡是"输入框/说明 + 按钮"的行都用星号列 Grid，不用横向 StackPanel。
+        // 横向 StackPanel 以无限宽度测量子元素，内容比对话框窄时右边的按钮会被顶出可见区域
+        // （用户报的"路径选择按键被挤到无法点击的地方"就是这么来的）。
+        var panel = new StackPanel { Spacing = 12, MinWidth = 440 };
 
-        // ── 目录行 ──
+        // ── 目录行：输入框可被压缩，按钮保住最小宽度 ──
+        _dirBox.MinWidth = 0;
+        _browseButton.MinWidth = 88;
+        _browseButton.VerticalAlignment = VerticalAlignment.Center;
+
         var dirRow = new Grid { ColumnSpacing = 8 };
         dirRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         dirRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
         Grid.SetColumn(_dirBox, 0);
-        dirRow.Children.Add(_dirBox);
         Grid.SetColumn(_browseButton, 1);
+        dirRow.Children.Add(_dirBox);
         dirRow.Children.Add(_browseButton);
         panel.Children.Add(dirRow);
 
@@ -164,19 +174,36 @@ internal sealed class FormatTool
         });
 
         // ── 转码行 ──
-        var convertRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        convertRow.Children.Add(new TextBlock
+        _formatBox.VerticalAlignment = VerticalAlignment.Center;
+        _convertButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _convertButton.VerticalAlignment = VerticalAlignment.Center;
+
+        var convertRow = new Grid { ColumnSpacing = 8 };
+        convertRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        convertRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        convertRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var convertLabel = new TextBlock
         {
             Text = "统一转换为",
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
-        });
+        };
+        Grid.SetColumn(convertLabel, 0);
+        Grid.SetColumn(_formatBox, 1);
+        Grid.SetColumn(_convertButton, 2);
+        convertRow.Children.Add(convertLabel);
         convertRow.Children.Add(_formatBox);
         convertRow.Children.Add(_convertButton);
         panel.Children.Add(convertRow);
 
         // ── 删除行 ──
-        var deleteRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var deleteRow = new Grid { ColumnSpacing = 8 };
+        deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        deleteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(_deleteEncryptedButton, 0);
+        Grid.SetColumn(_deleteAudioButton, 1);
         deleteRow.Children.Add(_deleteEncryptedButton);
         deleteRow.Children.Add(_deleteAudioButton);
         panel.Children.Add(deleteRow);
@@ -190,6 +217,7 @@ internal sealed class FormatTool
             Opacity = 0.75,
         });
 
+        _logBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         panel.Children.Add(_logBox);
         return panel;
     }

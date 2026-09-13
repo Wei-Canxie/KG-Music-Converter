@@ -42,6 +42,7 @@ internal sealed class ConvertControl : ToolPage
     private TextBlock? _kggWarning;
     private TextBlock? _fileCountLabel;
     private Button? _formatToolButton;
+    private TextBlock? _formatSummary;
 
     private static readonly SolidColorBrush NeedsManualBrush = new(ColorHelper.FromArgb(255, 0xFF, 0x98, 0x00));
 
@@ -227,18 +228,36 @@ internal sealed class ConvertControl : ToolPage
         _skipCopyCheck.Unchecked += (_, _) => _main.SaveRunOptions();
         optionsPanel.Children.Add(_skipCopyCheck);
 
-        // 转码格式：多选，都不勾 = 只解密（输出解密后的原始音频）
-        optionsPanel.Children.Add(new TextBlock
+        // 转码是可选动作，收进展开栏：默认收起不占版面，勾了哪些格式在标题里一眼可见
+        _formatSummary = new TextBlock
         {
-            Text = "解密后转码（都不勾选 = 只解密，保留原始音频）",
+            Text = "输出格式选项",
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var formatExpander = new Expander
+        {
+            Header = _formatSummary,
+            IsExpanded = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var formatPanel = new StackPanel { Spacing = 2 };
+        formatPanel.Children.Add(new TextBlock
+        {
+            Text = "勾选后解密完直接转码；都不勾选 = 只解密，保留原始音频。",
             FontSize = 12,
             Foreground = tm.SubText,
             TextWrapping = TextWrapping.Wrap,
         });
+        _convertMp3Check = AddFormatCheck(formatPanel, "转 MP3", _main.Live.ConvertMp3);
+        _convertWavCheck = AddFormatCheck(formatPanel, "转 WAV", _main.Live.ConvertWav);
+        _convertFlacCheck = AddFormatCheck(formatPanel, "转 FLAC", _main.Live.ConvertFlac);
+        formatExpander.Content = formatPanel;
 
-        _convertMp3Check = AddFormatCheck(optionsPanel, "转 MP3", _main.Live.ConvertMp3);
-        _convertWavCheck = AddFormatCheck(optionsPanel, "转 WAV", _main.Live.ConvertWav);
-        _convertFlacCheck = AddFormatCheck(optionsPanel, "转 FLAC", _main.Live.ConvertFlac);
+        optionsPanel.Children.Add(formatExpander);
+        UpdateFormatHeader();
 
         // 删除源文件（放在"统一输出"上面）
         _deleteSourceCheck = new CheckBox
@@ -606,10 +625,25 @@ internal sealed class ConvertControl : ToolPage
             FontSize = 13,
             IsChecked = isChecked,
         };
-        check.Checked += (_, _) => _main.SaveRunOptions();
-        check.Unchecked += (_, _) => _main.SaveRunOptions();
+        check.Checked += (_, _) => { _main.SaveRunOptions(); UpdateFormatHeader(); };
+        check.Unchecked += (_, _) => { _main.SaveRunOptions(); UpdateFormatHeader(); };
         parent.Children.Add(check);
         return check;
+    }
+
+    /// <summary>展开栏标题带上当前选择 —— 收起时也能一眼看出这次会不会转码。</summary>
+    private void UpdateFormatHeader()
+    {
+        if (_formatSummary is null) return;
+
+        var picked = new List<string>();
+        if (_convertMp3Check?.IsChecked == true) picked.Add("MP3");
+        if (_convertWavCheck?.IsChecked == true) picked.Add("WAV");
+        if (_convertFlacCheck?.IsChecked == true) picked.Add("FLAC");
+
+        _formatSummary.Text = picked.Count == 0
+            ? "输出格式选项（只解密）"
+            : $"输出格式选项（{string.Join(" / ", picked)}）";
     }
 
     /// <summary>包装可自动换行的文本（CheckBox 的 Content 为 string 时窄列会截断）。</summary>
