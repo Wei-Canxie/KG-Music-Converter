@@ -92,12 +92,16 @@ internal sealed class MainWindow : Window
     private Button? _cancelButton;
     private ListView? _queueList;
     private CheckBox? _skipCopyCheck;
-    private CheckBox? _skipConvertCheck;
+    private CheckBox? _convertMp3Check;
+    private CheckBox? _convertWavCheck;
+    private CheckBox? _convertFlacCheck;
+    private CheckBox? _deleteSourceCheck;
     private CheckBox? _unifiedOutputCheck;
     private TextBox? _unifiedOutputBox;
     private Button? _browseOutputButton;
     private TextBlock? _kggWarning;
     private Button? _clearCompletedButton;
+    private Button? _formatToolButton;
 
     private double _blurRadius;
     private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _originalBgImage;
@@ -108,7 +112,8 @@ internal sealed class MainWindow : Window
     public MainWindow()
     {
         Title = "KG Music Converter — 酷狗加密音频解密工具箱";
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 750));
+        // 转换页现在有 6 个运行选项 + 格式整理工具按钮，750 高会把按钮挤到折叠区外
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 900));
 
         _live = Settings.Load();
         _draft = _live.Clone();
@@ -138,6 +143,7 @@ internal sealed class MainWindow : Window
         ApplyAppearance(_live, rebuildPage: false);
 
         StartInboxWatcher();
+
 
         // 启动横幅：让日志栏一开始就有上下文，也顺手报出引擎是否就位
         AppendLog("KG Music Converter 启动");
@@ -1030,7 +1036,7 @@ internal sealed class MainWindow : Window
     /// 触碰任何 UI 控件都必须回到 UI 线程 —— 否则 WinUI 抛
     /// 0x8001010E (RPC_E_WRONG_THREAD)，异常会顺着回调把整个阶段带崩。
     /// </summary>
-    private void RunOnUi(Action action)
+    internal void RunOnUi(Action action)
     {
         var queue = DispatcherQueue;
         if (queue is null || queue.HasThreadAccess)
@@ -1098,9 +1104,17 @@ internal sealed class MainWindow : Window
     {
         if (_isRunning || _files.Count == 0) return;
 
-        bool skipConvert = _draft.SkipConvert;
-        bool useUnified = _draft.UseUnifiedOutput;
-        string unifiedDir = _draft.UnifiedOutputDir?.Trim() ?? "";
+        var options = new ConversionOptions
+        {
+            ConvertMp3 = _live.ConvertMp3,
+            ConvertWav = _live.ConvertWav,
+            ConvertFlac = _live.ConvertFlac,
+            DeleteSourceFile = _live.DeleteSourceFile,
+            UseUnifiedOutput = _live.UseUnifiedOutput,
+            UnifiedOutputDir = _live.UnifiedOutputDir?.Trim() ?? "",
+        };
+        bool useUnified = options.UseUnifiedOutput;
+        string unifiedDir = options.UnifiedOutputDir;
 
         // 引擎与中间产物都在应用工作区里，先确保引擎就位
         Workspace.EnsureCreated();
@@ -1108,7 +1122,7 @@ internal sealed class MainWindow : Window
 
         var missing = Workspace.MissingEngines()
             .Where(name =>
-                (name != "ffmpeg.exe" || !skipConvert) &&
+                (name != "ffmpeg.exe" || options.AnyConvert) &&
                 (name != "kgg-dec.exe" || _files.Any(f => f.Extension == ".kgg")))
             .ToList();
 
@@ -1143,6 +1157,7 @@ internal sealed class MainWindow : Window
         NotifyRunState();
 
         _cts = new CancellationTokenSource();
+        bool cancelled = false;
         var engine = new ConversionEngine(Workspace.Root, Workspace.Output, Workspace.Inbox);
         _engine = engine;
 
@@ -1165,11 +1180,12 @@ internal sealed class MainWindow : Window
 
         AppendLog($"工作目录: {Workspace.Root}\n");
         AppendLog($"成品输出: {(useUnified ? unifiedDir : "拖入的文件 → 源目录；收件箱的文件 → 成品目录")}\n");
+        AppendLog($"转码格式: {(options.AnyConvert ? string.Join(" / ", options.Targets.Select(AudioFormats.Display)) : "不转码（只解密）")}\n");
         AppendLog($"共 {_files.Count} 个文件，开始转换…\n\n");
 
         try
         {
-            await engine.RunAsync(skipConvert, useUnified, unifiedDir, _cts.Token);
+            await engine.RunAsync(options, _cts.Token);
         }
         catch (Exception ex)
         {
@@ -1177,9 +1193,69 @@ internal sealed class MainWindow : Window
         }
         finally
         {
+            cancelled = _cts.IsCancellationRequested;
             _isRunning = false;
             NotifyRunState();
         }
+
+        // 用户主动取消时不问：产物可能只做了一半，先别急着动源文件
+        if (!cancelled) await PromptDeleteSourcesAsync();
+    }
+
+    /// <summary>
+    /// 转换完成后询问是否删除源文件。
+    ///
+    /// 只在真有源文件可删时才弹 —— 全部失败、或源文件本来就不在了，不必打扰。
+    /// 勾了"删除源文件"只意味着默认按钮是"删除"，仍然要点一下才算数，不会静默删除。
+    /// </summary>
+    private async Task PromptDeleteSourcesAsync()
+    {
+        var candidates = _files
+            .Where(f => f.Status == FileStatus.Completed
+                        && !string.IsNullOrEmpty(f.SourcePath)
+                        && File.Exists(f.SourcePath))
+            .ToList();
+
+        if (candidates.Count == 0) return;
+        if (Content?.XamlRoot is not { } xamlRoot) return;
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = xamlRoot,
+            Title = "转换完成",
+            Content = new TextBlock
+            {
+                Text = $"这 {candidates.Count} 个文件的源文件要一起删掉吗？\n\n"
+                     + "删除只是放进回收站，随时可以还原；解密/转码出来的成品不受影响。",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = $"删除 {candidates.Count} 个源文件",
+            CloseButtonText = "保留源文件",
+            DefaultButton = _live.DeleteSourceFile ? ContentDialogButton.Primary : ContentDialogButton.Close,
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            AppendLog("源文件已保留\n");
+            return;
+        }
+
+        int deleted = _engine?.DeleteSources(candidates) ?? 0;
+        AppendLog($"🗑 已删除 {deleted} 个源文件（放入回收站）\n");
+    }
+
+    /// <summary>打开格式整理工具：选目录 → 统一转码 / 批量删除。</summary>
+    internal async Task ShowFormatToolAsync()
+    {
+        if (Content?.XamlRoot is null)
+        {
+            // 窗口还没完成激活时拿不到 XamlRoot，弹不出来 —— 别静默失败，留个记录
+            AppendLog("⚠ 窗口尚未就绪，格式整理工具打不开，请稍后再点一次\n");
+            return;
+        }
+
+        await FormatTool.ShowAsync(this);
     }
 
     internal void CancelConversion()
@@ -1210,7 +1286,11 @@ internal sealed class MainWindow : Window
     internal Button? CancelButton { get => _cancelButton; set => _cancelButton = value; }
     internal ListView? QueueList { get => _queueList; set => _queueList = value; }
     internal CheckBox? SkipCopyCheck { get => _skipCopyCheck; set => _skipCopyCheck = value; }
-    internal CheckBox? SkipConvertCheck { get => _skipConvertCheck; set => _skipConvertCheck = value; }
+    internal CheckBox? ConvertMp3Check { get => _convertMp3Check; set => _convertMp3Check = value; }
+    internal CheckBox? ConvertWavCheck { get => _convertWavCheck; set => _convertWavCheck = value; }
+    internal CheckBox? ConvertFlacCheck { get => _convertFlacCheck; set => _convertFlacCheck = value; }
+    internal CheckBox? DeleteSourceCheck { get => _deleteSourceCheck; set => _deleteSourceCheck = value; }
+    internal Button? FormatToolButton { get => _formatToolButton; set => _formatToolButton = value; }
     internal CheckBox? UnifiedOutputCheck { get => _unifiedOutputCheck; set => _unifiedOutputCheck = value; }
     internal TextBox? UnifiedOutputBox { get => _unifiedOutputBox; set => _unifiedOutputBox = value; }
     internal Button? BrowseOutputButton { get => _browseOutputButton; set => _browseOutputButton = value; }
@@ -1221,19 +1301,27 @@ internal sealed class MainWindow : Window
     internal void SaveRunOptions()
     {
         _live.SkipCopy = _skipCopyCheck?.IsChecked ?? false;
-        _live.SkipConvert = _skipConvertCheck?.IsChecked ?? false;
+        _live.ConvertMp3 = _convertMp3Check?.IsChecked ?? false;
+        _live.ConvertWav = _convertWavCheck?.IsChecked ?? false;
+        _live.ConvertFlac = _convertFlacCheck?.IsChecked ?? false;
+        _live.DeleteSourceFile = _deleteSourceCheck?.IsChecked ?? false;
         _live.UseUnifiedOutput = _unifiedOutputCheck?.IsChecked ?? false;
         _live.UnifiedOutputDir = _unifiedOutputBox?.Text?.Trim() ?? "";
 
-        // 同步草稿，避免下次"取消更改"把这些运行选项一起回滚
-        _draft.SkipCopy = _live.SkipCopy;
-        _draft.SkipConvert = _live.SkipConvert;
-        _draft.UseUnifiedOutput = _live.UseUnifiedOutput;
-        _draft.UnifiedOutputDir = _live.UnifiedOutputDir;
-        _applied.SkipCopy = _live.SkipCopy;
-        _applied.SkipConvert = _live.SkipConvert;
-        _applied.UseUnifiedOutput = _live.UseUnifiedOutput;
-        _applied.UnifiedOutputDir = _live.UnifiedOutputDir;
+        // 同步草稿与快照，避免下次"取消更改"把这些运行选项一起回滚。
+        // 逐个字段抄而不是整体 Clone：设置页的草稿里可能还有未应用的编辑。
+        void Sync(Settings s)
+        {
+            s.SkipCopy = _live.SkipCopy;
+            s.ConvertMp3 = _live.ConvertMp3;
+            s.ConvertWav = _live.ConvertWav;
+            s.ConvertFlac = _live.ConvertFlac;
+            s.DeleteSourceFile = _live.DeleteSourceFile;
+            s.UseUnifiedOutput = _live.UseUnifiedOutput;
+            s.UnifiedOutputDir = _live.UnifiedOutputDir;
+        }
+        Sync(_draft);
+        Sync(_applied);
 
         _live.Save();
     }

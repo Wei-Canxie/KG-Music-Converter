@@ -39,7 +39,15 @@ public class Settings
 
     // ── 转换页运行选项（即时生效，但记住上次选择） ──
     public bool SkipCopy { get; set; }
-    public bool SkipConvert { get; set; }
+
+    /// <summary>解密后转成这些格式（可多选；默认一个都不勾 = 只解密不转码）。</summary>
+    public bool ConvertMp3 { get; set; }
+    public bool ConvertWav { get; set; }
+    public bool ConvertFlac { get; set; }
+
+    /// <summary>勾上后，转换完成弹窗里"删除源文件"是默认按钮（仍会再问一次，不会静默删除）。</summary>
+    public bool DeleteSourceFile { get; set; }
+
     public bool UseUnifiedOutput { get; set; }
     public string UnifiedOutputDir { get; set; } = "";
 
@@ -62,7 +70,10 @@ public class Settings
         ThemeG = copy.ThemeG;
         ThemeB = copy.ThemeB;
         SkipCopy = copy.SkipCopy;
-        SkipConvert = copy.SkipConvert;
+        ConvertMp3 = copy.ConvertMp3;
+        ConvertWav = copy.ConvertWav;
+        ConvertFlac = copy.ConvertFlac;
+        DeleteSourceFile = copy.DeleteSourceFile;
         UseUnifiedOutput = copy.UseUnifiedOutput;
         UnifiedOutputDir = copy.UnifiedOutputDir;
     }

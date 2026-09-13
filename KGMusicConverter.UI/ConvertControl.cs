@@ -32,12 +32,16 @@ internal sealed class ConvertControl : ToolPage
     private Button? _addFilesButton;
     private Button? _clearCompletedButton;
     private CheckBox? _skipCopyCheck;
-    private CheckBox? _skipConvertCheck;
+    private CheckBox? _convertMp3Check;
+    private CheckBox? _convertWavCheck;
+    private CheckBox? _convertFlacCheck;
+    private CheckBox? _deleteSourceCheck;
     private CheckBox? _unifiedOutputCheck;
     private TextBox? _unifiedOutputBox;
     private Button? _browseOutputButton;
     private TextBlock? _kggWarning;
     private TextBlock? _fileCountLabel;
+    private Button? _formatToolButton;
 
     private static readonly SolidColorBrush NeedsManualBrush = new(ColorHelper.FromArgb(255, 0xFF, 0x98, 0x00));
 
@@ -223,15 +227,29 @@ internal sealed class ConvertControl : ToolPage
         _skipCopyCheck.Unchecked += (_, _) => _main.SaveRunOptions();
         optionsPanel.Children.Add(_skipCopyCheck);
 
-        _skipConvertCheck = new CheckBox
+        // 转码格式：多选，都不勾 = 只解密（输出解密后的原始音频）
+        optionsPanel.Children.Add(new TextBlock
         {
-            Content = WrapText("跳过转 MP3（仅解密）"),
+            Text = "解密后转码（都不勾选 = 只解密，保留原始音频）",
+            FontSize = 12,
+            Foreground = tm.SubText,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        _convertMp3Check = AddFormatCheck(optionsPanel, "转 MP3", _main.Live.ConvertMp3);
+        _convertWavCheck = AddFormatCheck(optionsPanel, "转 WAV", _main.Live.ConvertWav);
+        _convertFlacCheck = AddFormatCheck(optionsPanel, "转 FLAC", _main.Live.ConvertFlac);
+
+        // 删除源文件（放在"统一输出"上面）
+        _deleteSourceCheck = new CheckBox
+        {
+            Content = WrapText("删除源文件（转换完成后会再确认一次；删除进回收站）"),
             FontSize = 13,
-            IsChecked = _main.Live.SkipConvert,
+            IsChecked = _main.Live.DeleteSourceFile,
         };
-        _skipConvertCheck.Checked += (_, _) => _main.SaveRunOptions();
-        _skipConvertCheck.Unchecked += (_, _) => _main.SaveRunOptions();
-        optionsPanel.Children.Add(_skipConvertCheck);
+        _deleteSourceCheck.Checked += (_, _) => _main.SaveRunOptions();
+        _deleteSourceCheck.Unchecked += (_, _) => _main.SaveRunOptions();
+        optionsPanel.Children.Add(_deleteSourceCheck);
 
         _unifiedOutputCheck = new CheckBox
         {
@@ -347,6 +365,18 @@ internal sealed class ConvertControl : ToolPage
 
         contentPanel.Children.Add(buttonPanel);
 
+        // 格式整理工具：独立于队列的一次性小工具（选目录 → 统一转码 / 批量删除）
+        _formatToolButton = new Button
+        {
+            Content = "🧰 格式整理工具",
+            FontSize = 14,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8, 10, 8, 10),
+        };
+        _formatToolButton.Click += (_, _) => _ = _main.ShowFormatToolAsync();
+        contentPanel.Children.Add(_formatToolButton);
+
         leftScroll.Content = contentPanel;
         Grid.SetColumn(leftScroll, 0);
         root.Children.Add(leftScroll);
@@ -427,7 +457,11 @@ internal sealed class ConvertControl : ToolPage
         _main.CancelButton = _cancelButton;
         _main.QueueList = _queueList;
         _main.SkipCopyCheck = _skipCopyCheck;
-        _main.SkipConvertCheck = _skipConvertCheck;
+        _main.ConvertMp3Check = _convertMp3Check;
+        _main.ConvertWavCheck = _convertWavCheck;
+        _main.ConvertFlacCheck = _convertFlacCheck;
+        _main.DeleteSourceCheck = _deleteSourceCheck;
+        _main.FormatToolButton = _formatToolButton;
         _main.UnifiedOutputCheck = _unifiedOutputCheck;
         _main.UnifiedOutputBox = _unifiedOutputBox;
         _main.BrowseOutputButton = _browseOutputButton;
@@ -464,6 +498,8 @@ internal sealed class ConvertControl : ToolPage
         if (_cancelButton is not null) _cancelButton.IsEnabled = _main.IsRunning;
         if (_addFilesButton is not null) _addFilesButton.IsEnabled = !_main.IsRunning;
         if (_clearCompletedButton is not null) _clearCompletedButton.IsEnabled = !_main.IsRunning;
+        // 整理工具也吃 ffmpeg，转换跑着的时候先别开，免得抢 CPU
+        if (_formatToolButton is not null) _formatToolButton.IsEnabled = !_main.IsRunning;
 
         UpdateKggWarning();
     }
@@ -560,6 +596,21 @@ internal sealed class ConvertControl : ToolPage
     private void OnCancel(object sender, RoutedEventArgs e) => _main.CancelConversion();
 
     private void OnClearCompleted(object sender, RoutedEventArgs e) => _main.RemoveCompletedFiles();
+
+    /// <summary>加一个转码格式勾选框并挂上保存回调（三个格式共用同一套行为）。</summary>
+    private CheckBox AddFormatCheck(Panel parent, string label, bool isChecked)
+    {
+        var check = new CheckBox
+        {
+            Content = WrapText(label),
+            FontSize = 13,
+            IsChecked = isChecked,
+        };
+        check.Checked += (_, _) => _main.SaveRunOptions();
+        check.Unchecked += (_, _) => _main.SaveRunOptions();
+        parent.Children.Add(check);
+        return check;
+    }
 
     /// <summary>包装可自动换行的文本（CheckBox 的 Content 为 string 时窄列会截断）。</summary>
     private static TextBlock WrapText(string text) => new()

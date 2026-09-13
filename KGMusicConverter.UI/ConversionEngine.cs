@@ -9,6 +9,41 @@ using System.Threading.Tasks;
 namespace KGMusicConverter;
 
 /// <summary>
+/// 一次转换的运行选项。
+///
+/// 转码格式是<b>多选</b>：三种都不勾 = 只解密（输出解密后的 flac/ogg），
+/// 勾几种就产出几种；解析出来的原始文件始终保留。
+/// </summary>
+public sealed class ConversionOptions
+{
+    public bool ConvertMp3 { get; set; }
+    public bool ConvertWav { get; set; }
+    public bool ConvertFlac { get; set; }
+
+    /// <summary>勾选后，完成弹窗里"删除源文件"为默认按钮；删除动作始终由弹窗确认，不静默删除。</summary>
+    public bool DeleteSourceFile { get; set; }
+
+    public bool UseUnifiedOutput { get; set; }
+    public string UnifiedOutputDir { get; set; } = "";
+
+    /// <summary>是否勾了任何转码格式。</summary>
+    public bool AnyConvert => ConvertMp3 || ConvertWav || ConvertFlac;
+
+    /// <summary>勾选的格式，顺序固定 MP3 → WAV → FLAC。</summary>
+    public IReadOnlyList<AudioFormat> Targets
+    {
+        get
+        {
+            var targets = new List<AudioFormat>();
+            if (ConvertMp3) targets.Add(AudioFormat.Mp3);
+            if (ConvertWav) targets.Add(AudioFormat.Wav);
+            if (ConvertFlac) targets.Add(AudioFormat.Flac);
+            return targets;
+        }
+    }
+}
+
+/// <summary>
 /// 转换引擎 — 支持文件条目状态追踪、源目录/统一输出目录。
 /// </summary>
 public sealed class ConversionEngine
@@ -82,7 +117,7 @@ public sealed class ConversionEngine
         }
     }
 
-    public async Task RunAsync(bool skipConvert, bool useUnifiedOutput, string unifiedOutputDir, CancellationToken ct)
+    public async Task RunAsync(ConversionOptions options, CancellationToken ct)
     {
         try
         {
@@ -100,20 +135,20 @@ public sealed class ConversionEngine
             var kggTask = Task.Run(() => PhaseProcessKgg(), ct);
             await Task.WhenAll(unlockTask, kggTask);
 
-            // ── 阶段5: 批量转 MP3（可选） ──
-            if (skipConvert)
+            // ── 阶段5: 转码（可选，格式可多选） ──
+            if (!options.AnyConvert)
             {
-                OnLog("跳过转 MP3");
+                OnLog("未勾选转码格式：只解密，输出解密后的原始音频");
             }
             else
             {
-                OnProgress(70, "批量转 MP3");
-                await Task.Run(() => PhaseConvertFlacToMp3(ct), ct);
+                OnProgress(70, "转码");
+                await Task.Run(() => PhaseConvertFormats(options, ct), ct);
             }
 
             // ── 阶段6: 移动到目标目录 ──
             OnProgress(90, "移动到目标目录");
-            await Task.Run(() => PhaseMoveToTargets(useUnifiedOutput, unifiedOutputDir), ct);
+            await Task.Run(() => PhaseMoveToTargets(options.UseUnifiedOutput, options.UnifiedOutputDir), ct);
 
             // ── 阶段7: 清理 ──
             OnProgress(97, "清理临时文件");
@@ -337,64 +372,93 @@ public sealed class ConversionEngine
         OnLog("✓ KGG 处理完成");
     }
 
-    // ── 阶段5: 批量转 MP3 ──
-    private void PhaseConvertFlacToMp3(CancellationToken ct)
+    // ── 阶段5: 转码（MP3 / WAV / FLAC，可多选） ──
+    private void PhaseConvertFormats(ConversionOptions options, CancellationToken ct)
     {
-        OnLog("=== 阶段5: 批量转 MP3 ===");
-        if (!File.Exists(FFmpeg)) { OnLog("⚠ 未找到 ffmpeg.exe，跳过"); return; }
+        OnLog("=== 阶段5: 转码 ===");
+        if (!File.Exists(FFmpeg)) { OnLog("⚠ 未找到 ffmpeg.exe，跳过转码"); return; }
+
+        var targets = options.Targets;
+        if (targets.Count == 0) { OnLog("未勾选转码格式，跳过"); return; }
+
+        OnLog($"目标格式: {string.Join(" / ", targets.Select(AudioFormats.Display))}");
 
         var audioFiles = Directory.GetFiles(OutputDir)
-            .Where(f => {
-                var ext = Path.GetExtension(f).ToLower();
-                return (ext == ".flac" || ext == ".ogg");
+            .Where(f =>
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                return ext == ".flac" || ext == ".ogg";
             })
             .ToList();
 
         if (audioFiles.Count == 0) { OnLog("kgm-vpr-out/ 中没有 FLAC/OGG 文件，跳过"); return; }
 
-        int total = audioFiles.Count, done = 0;
+        int total = audioFiles.Count * targets.Count, done = 0;
         foreach (var audio in audioFiles)
         {
             ct.ThrowIfCancellationRequested();
             var baseName = Path.GetFileNameWithoutExtension(audio);
-            var dst = Path.Combine(OutputDir, $"{baseName}.mp3");
 
-            OnLog($"[{++done}/{total}] 转换: {Path.GetFileName(audio)}");
-            try
+            foreach (var format in targets)
             {
-                using var proc = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = FFmpeg,
-                        Arguments = $"-i \"{audio}\" -q:a 0 -map_metadata 0 -map 0:a -map 0:v? -c:v copy -id3v2_version 3 -y \"{dst}\"",
-                        WorkingDirectory = OutputDir,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true,
-                    }
-                };
-                proc.Start();
-                string stderr = proc.StandardError.ReadToEnd();
-                proc.WaitForExit(600_000);
+                ct.ThrowIfCancellationRequested();
+                done++;
 
-                if (File.Exists(dst))
+                // 源文件本来就是目标格式：再编码一遍只会掉质量
+                if (AudioFormats.IsAlready(format, audio))
                 {
-                    var duration = ExtractDuration(stderr);
-                    OnLog($"  ✓ {baseName}.mp3 (时长 {duration})");
+                    OnLog($"[{done}/{total}] 跳过 {Path.GetFileName(audio)}：本身已是 {AudioFormats.Display(format)}");
+                    continue;
                 }
+
+                var dst = Path.Combine(OutputDir, baseName + AudioFormats.Extension(format));
+                OnLog($"[{done}/{total}] 转 {AudioFormats.Display(format)}: {Path.GetFileName(audio)}");
+
+                if (AudioFormats.Convert(FFmpeg, format, audio, dst, out var detail))
+                    OnLog($"  ✓ {baseName}{AudioFormats.Extension(format)}（时长 {detail}）");
                 else
-                {
-                    OnLog($"  ✗ 转换失败");
-                }
-            }
-            catch (Exception e)
-            {
-                OnLog($"  ✗ 错误: {e.Message}");
+                    OnLog($"  ✗ 转换失败: {detail}");
             }
         }
-        OnLog("✓ 批量转换完成");
+        OnLog("✓ 转码完成");
+    }
+
+    /// <summary>
+    /// 删除已成功转换的源文件（只有在完成弹窗里确认后才会走到这里）。
+    ///
+    /// 两道防线：
+    /// 1. 工作区 / 产物目录里的文件一律不碰 —— 那是应用自己的临时产物；
+    /// 2. 源文件路径若与本批产物相同则跳过 —— 加密 .flac 解密后同名同后缀会覆盖源文件，
+    ///    那之后"源文件"其实就是成品，删了等于把成品删掉。
+    /// </summary>
+    public int DeleteSources(IEnumerable<FileEntry>? entries = null, bool quiet = false)
+    {
+        var produced = new HashSet<string>(
+            _files.Select(f => FileOps.ToFullPathOrEmpty(f.OutputPath)).Where(path => path.Length > 0),
+            StringComparer.OrdinalIgnoreCase);
+
+        int deleted = 0;
+        foreach (var f in entries ?? _files)
+        {
+            if (f.Status != FileStatus.Completed) continue;
+            if (string.IsNullOrEmpty(f.SourcePath) || !File.Exists(f.SourcePath)) continue;
+
+            var full = FileOps.ToFullPathOrEmpty(f.SourcePath);
+            if (full.Length == 0) continue;
+            if (produced.Contains(full)) continue;
+            if (FileOps.IsInside(full, WorkingDir) || FileOps.IsInside(full, OutputDir)) continue;
+
+            if (FileOps.DeleteToRecycleBin(full))
+            {
+                deleted++;
+                if (!quiet) OnLog($"  🗑 源文件已放入回收站: {Path.GetFileName(full)}");
+            }
+            else if (!quiet)
+            {
+                OnLog($"  ✗ 无法删除: {Path.GetFileName(full)}");
+            }
+        }
+        return deleted;
     }
 
     // ── 阶段6: 移动到目标目录 ──
@@ -458,17 +522,15 @@ public sealed class ConversionEngine
 
             try
             {
-                bool first = true;
                 foreach (var producedFile in produced)
                 {
                     var target = Path.Combine(targetDir, Path.GetFileName(producedFile));
                     if (File.Exists(target)) File.Delete(target);
                     File.Move(producedFile, target);
 
-                    // OutputPath 指向用户最想要的那个：有 mp3 就用 mp3
-                    if (first || Path.GetExtension(target).Equals(".mp3", StringComparison.OrdinalIgnoreCase))
+                    // OutputPath 指向用户最想要的那个：转码产物优先于解密出来的原始文件
+                    if (f.OutputPath is null || OutputRank(target) < OutputRank(f.OutputPath))
                         f.OutputPath = target;
-                    first = false;
 
                     OnLog($"  → {Path.GetFileName(target)} → {targetDir}");
                 }
@@ -506,13 +568,12 @@ public sealed class ConversionEngine
         OnLog($"✓ 清理完成，删除 {deleted} 个临时文件");
     }
 
-    private static string ExtractDuration(string ffmpegStderr)
+    /// <summary>产物的"想要程度"排序：转码过的排在解密出来的原始文件前面。</summary>
+    private static readonly string[] OutputPreference = { ".mp3", ".wav", ".flac", ".ogg" };
+
+    private static int OutputRank(string path)
     {
-        var idx = ffmpegStderr.IndexOf("Duration:", StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return "?";
-        var start = idx + "Duration:".Length;
-        var end = ffmpegStderr.IndexOf(',', start);
-        if (end < 0) return "?";
-        return ffmpegStderr[start..end].Trim();
+        var idx = Array.IndexOf(OutputPreference, Path.GetExtension(path).ToLowerInvariant());
+        return idx < 0 ? OutputPreference.Length : idx;
     }
 }
